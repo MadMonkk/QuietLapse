@@ -4,7 +4,7 @@ import android.app.*;
 import android.content.*;
 import android.hardware.Camera;
 import android.os.*;
-import android.view.SurfaceTexture;
+import android.graphics.SurfaceTexture;
 import android.graphics.SurfaceTexture;
 import android.media.*;
 import android.content.ContentValues;
