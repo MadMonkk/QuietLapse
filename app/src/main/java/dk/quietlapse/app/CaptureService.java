@@ -5,7 +5,6 @@ import android.content.*;
 import android.hardware.Camera;
 import android.os.*;
 import android.graphics.SurfaceTexture;
-import android.graphics.SurfaceTexture;
 import android.media.*;
 import android.content.ContentValues;
 import android.provider.MediaStore;
@@ -23,6 +22,16 @@ public class CaptureService extends Service {
     private long interval=60000;
     private File sessionDir;
     private boolean running=false;
+    private int savedCount=0;
+    public static final String ACTION_STATUS="dk.quietlapse.app.STATUS";
+    private void reportStatus(String message) {
+        Intent i = new Intent(ACTION_STATUS);
+        i.setPackage(getPackageName());
+        i.putExtra("message", message);
+        i.putExtra("running", running);
+        sendBroadcast(i);
+        updateNotification(message);
+    }
 
     @Override public void onCreate() {
         super.onCreate(); handler = new Handler(Looper.getMainLooper());
@@ -34,7 +43,8 @@ public class CaptureService extends Service {
     @Override public int onStartCommand(Intent intent, int flags, int id) {
         if (intent != null && ACTION_START.equals(intent.getAction())) {
             interval = intent.getLongExtra("interval_ms",60000);
-            startForeground(7, notification("Timelapse optager"));
+            startForeground(7, notification("Starter kamera …"));
+            reportStatus("Starter kamera …");
             if (!running) begin();
         } else if (intent != null && ACTION_STOP.equals(intent.getAction())) {
             stopCaptureAndEncode();
@@ -57,9 +67,18 @@ public class CaptureService extends Service {
             Camera.Parameters p = camera.getParameters();
             List<Camera.Size> sizes = p.getSupportedPictureSizes();
             if (sizes != null && !sizes.isEmpty()) {
+                // Choose the highest supported resolution (the first version accidentally chose the smallest).
                 Camera.Size best = sizes.get(0);
-                for (Camera.Size s : sizes) if ((long)s.width*s.height < (long)best.width*best.height) best=s;
+                for (Camera.Size s : sizes) if ((long)s.width*s.height > (long)best.width*best.height) best=s;
                 p.setPictureSize(best.width,best.height);
+            }
+            List<String> focusModes = p.getSupportedFocusModes();
+            if (focusModes != null) {
+                if (focusModes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE)) {
+                    p.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
+                } else if (focusModes.contains(Camera.Parameters.FOCUS_MODE_AUTO)) {
+                    p.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
+                }
             }
             camera.setParameters(p);
             camera.startPreview();
@@ -68,20 +87,23 @@ public class CaptureService extends Service {
                 @Override public void run() {
                     if (!running || camera==null) return;
                     try { camera.takePicture(null,null, (data, cam) -> {
-                        try (FileOutputStream out = new FileOutputStream(new File(sessionDir,String.format(Locale.US,"img_%06d.jpg",System.currentTimeMillis())))) { out.write(data); }
-                        catch(Exception e) { }
+                        try (FileOutputStream out = new FileOutputStream(new File(sessionDir,String.format(Locale.US,"img_%06d.jpg",System.currentTimeMillis())))) { out.write(data); savedCount++; }
+                        catch(Exception e) { reportStatus("FEJL: kunne ikke gemme billedet. Kontrollér lageradgang."); }
                         try { cam.startPreview(); } catch(Exception e) {}
+                        reportStatus("OPTAGER\nBilleder gemt: " + savedCount + "\nMappe: Pictures/QuietLapse/" + sessionDir.getName());
                     }); } catch(Exception e) {}
                     handler.postDelayed(this, interval);
                 }
             };
             handler.post(captureTask);
-            updateNotification("Optager – interval " + interval/1000 + " sek.");
-        } catch(Exception e) { running=false; updateNotification("Kunne ikke starte kameraet"); stopForeground(true); stopSelf(); }
+            savedCount=0;
+            reportStatus("OPTAGER\nBilleder gemmes i: Pictures/QuietLapse/" + sessionDir.getName() + "\nInterval: " + interval/1000 + " sek.");
+        } catch(Exception e) { running=false; reportStatus("FEJL: Kameraet kunne ikke startes. Kontrollér kameratilladelse."); stopForeground(true); stopSelf(); }
     }
     private void updateNotification(String s) { if (Build.VERSION.SDK_INT>=26) ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(7,notification(s)); }
     private void stopCaptureAndEncode() {
         running=false;
+        reportStatus("STOPPER OPTAGELSE\nForbereder video …\nBilleder gemt: " + savedCount);
         if (captureTask!=null) handler.removeCallbacks(captureTask);
         if (camera!=null) { try { camera.stopPreview(); camera.release(); } catch(Exception e){} camera=null; }
         if (texture!=null) { try { texture.release(); } catch(Exception e){} texture=null; }
@@ -94,8 +116,8 @@ public class CaptureService extends Service {
                 encode(pics,mp4);
                 ContentValues cv=new ContentValues(); cv.put(MediaStore.Video.Media.DISPLAY_NAME,"QuietLapse_"+sessionDir.getName()+".mp4"); cv.put(MediaStore.Video.Media.MIME_TYPE,"video/mp4"); cv.put(MediaStore.Video.Media.DATA,mp4.getAbsolutePath());
                 getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI,cv);
-                updateNotification("Video gemt: "+mp4.getName());
-            } catch(Exception e) { updateNotification("Video kunne ikke laves – billederne er gemt"); }
+                reportStatus("FÆRDIG\nVideo gemt: Pictures/QuietLapse/" + sessionDir.getName() + "/timelapse.mp4\nBilleder: " + pics.length);
+            } catch(Exception e) { reportStatus("VIDEOFEJL\nVideoen kunne ikke laves. Billederne er bevaret i Pictures/QuietLapse."); }
             stopForeground(true); stopSelf();
         }).start();
     }
@@ -104,7 +126,11 @@ public class CaptureService extends Service {
         if (pics.length==0) throw new IOException("Ingen billeder");
         android.graphics.Bitmap first=android.graphics.BitmapFactory.decodeFile(pics[0].getAbsolutePath());
         if (first==null) throw new IOException("Første billede kunne ikke læses");
-        int w=first.getWidth() & ~1, h=first.getHeight() & ~1;
+        // Keep original photos at full resolution, but cap the MP4 frame size for Android 9 encoders.
+        int sourceW=first.getWidth(), sourceH=first.getHeight();
+        float scale=Math.min(1.0f, Math.min(1920.0f/sourceW, 1080.0f/sourceH));
+        int w=Math.max(2, ((int)(sourceW*scale)) & ~1);
+        int h=Math.max(2, ((int)(sourceH*scale)) & ~1);
         first.recycle();
         MediaFormat fmt=MediaFormat.createVideoFormat("video/avc",w,h);
         fmt.setInteger(MediaFormat.KEY_COLOR_FORMAT,MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
