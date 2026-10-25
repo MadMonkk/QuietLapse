@@ -1,0 +1,14 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'dk.quietlapse.app'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'dk.quietlapse.app'
+        minSdk 28
+        targetSdk 28
+        versionCode 1
+        versionName '0.1'
+    }
+}
