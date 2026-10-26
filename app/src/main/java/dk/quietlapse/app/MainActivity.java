@@ -29,6 +29,7 @@ import android.os.Bundle;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
+import android.widget.FrameLayout;
 import android.widget.*;
 import java.io.File;
 import java.io.IOException;
@@ -145,11 +146,19 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
         TextView help = new TextView(this); help.setText("TIMELAPSE  •  Fang tiden i bevægelse");
         help.setTextSize(14); help.setTextColor(Color.rgb(177, 193, 212));
         help.setPadding(0, dp(4), 0, dp(12)); root.addView(help);
-        preview = new AspectTextureView(this); preview.setAspectRatio(4, 3); preview.setSurfaceTextureListener(this);
+        // TextureView cannot have a background drawable on Android 9. Put the
+        // rounded background/border on a parent FrameLayout instead.
+        FrameLayout previewFrame = new FrameLayout(this);
+        previewFrame.setBackground(rounded(Color.rgb(7, 12, 22), 18, Color.rgb(55, 82, 105), 1));
+        if (Build.VERSION.SDK_INT >= 21) previewFrame.setClipToOutline(true);
+        preview = new AspectTextureView(this);
+        preview.setAspectRatio(4, 3);
+        preview.setSurfaceTextureListener(this);
+        previewFrame.addView(preview, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(220));
         previewParams.gravity = android.view.Gravity.CENTER_HORIZONTAL;
-        preview.setBackground(rounded(Color.rgb(7, 12, 22), 18, Color.rgb(55, 82, 105), 1));
-        root.addView(preview, previewParams);
+        root.addView(previewFrame, previewParams);
         TextView pLabel = new TextView(this); pLabel.setText("● LIVE KAMERAPREVIEW  ·  frigives under optagelse");
         pLabel.setTextSize(12); pLabel.setTextColor(Color.rgb(145, 166, 190));
         pLabel.setPadding(0, dp(8), 0, dp(8)); root.addView(pLabel);
