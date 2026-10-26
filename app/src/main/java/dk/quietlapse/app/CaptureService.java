@@ -15,6 +15,7 @@ import java.util.*;
 
 public class CaptureService extends Service {
     public static final String ACTION_START="start", ACTION_STOP="stop";
+    public static volatile boolean isCapturing = false;
     private Handler handler;
     private Camera camera;
     private SurfaceTexture texture;
@@ -53,7 +54,12 @@ public class CaptureService extends Service {
     }
     private Notification notification(String s) {
         Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this,"quietlapse") : new Notification.Builder(this);
-        return b.setContentTitle("QuietLapse").setContentText(s).setSmallIcon(android.R.drawable.ic_menu_camera).build();
+        Intent openApp = new Intent(this, MainActivity.class);
+        openApp.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent tap = PendingIntent.getActivity(this, 70, openApp,
+                Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_UPDATE_CURRENT);
+        return b.setContentTitle("QuietLapse").setContentText(s).setSmallIcon(android.R.drawable.ic_menu_camera)
+                .setContentIntent(tap).setAutoCancel(false).build();
     }
     private void begin() {
         try {
@@ -80,9 +86,23 @@ public class CaptureService extends Service {
                     p.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
                 }
             }
+            // Store JPEG rotation metadata for a portrait/landscape phone orientation.
+            // The rear camera on many Android phones has a 90-degree sensor offset.
+            Camera.CameraInfo info = new Camera.CameraInfo();
+            Camera.getCameraInfo(0, info);
+            int rotation = 0;
+            try {
+                int display = ((android.view.WindowManager)getSystemService(WINDOW_SERVICE)).getDefaultDisplay().getRotation();
+                int degrees = display == android.view.Surface.ROTATION_0 ? 0 : display == android.view.Surface.ROTATION_90 ? 90 : display == android.view.Surface.ROTATION_180 ? 180 : 270;
+                rotation = info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT
+                        ? (info.orientation + degrees) % 360
+                        : (info.orientation - degrees + 360) % 360;
+            } catch (Exception ignored) { rotation = info.orientation; }
+            p.setRotation(rotation);
             camera.setParameters(p);
             camera.startPreview();
             running=true;
+            isCapturing=true;
             captureTask = new Runnable() {
                 @Override public void run() {
                     if (!running || camera==null) return;
@@ -98,11 +118,11 @@ public class CaptureService extends Service {
             handler.post(captureTask);
             savedCount=0;
             reportStatus("OPTAGER\nBilleder gemmes i: Pictures/QuietLapse/" + sessionDir.getName() + "\nInterval: " + interval/1000 + " sek.");
-        } catch(Exception e) { running=false; reportStatus("FEJL: Kameraet kunne ikke startes. Kontrollér kameratilladelse."); stopForeground(true); stopSelf(); }
+        } catch(Exception e) { running=false; isCapturing=false; reportStatus("FEJL: Kameraet kunne ikke startes. Kontrollér kameratilladelse."); stopForeground(true); stopSelf(); }
     }
     private void updateNotification(String s) { if (Build.VERSION.SDK_INT>=26) ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(7,notification(s)); }
     private void stopCaptureAndEncode() {
-        running=false;
+        running=false; isCapturing=false;
         reportStatus("STOPPER OPTAGELSE\nForbereder video …\nBilleder gemt: " + savedCount);
         if (captureTask!=null) handler.removeCallbacks(captureTask);
         if (camera!=null) { try { camera.stopPreview(); camera.release(); } catch(Exception e){} camera=null; }
@@ -205,6 +225,6 @@ public class CaptureService extends Service {
         }
         return yuv;
     }
-    @Override public void onDestroy() { running=false; if(captureTask!=null)handler.removeCallbacks(captureTask); if(camera!=null)try{camera.release();}catch(Exception e){} super.onDestroy(); }
+    @Override public void onDestroy() { running=false; isCapturing=false; if(captureTask!=null)handler.removeCallbacks(captureTask); if(camera!=null)try{camera.release();}catch(Exception e){} super.onDestroy(); }
     @Override public android.os.IBinder onBind(Intent i) { return null; }
 }
