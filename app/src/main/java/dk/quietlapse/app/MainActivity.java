@@ -71,12 +71,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
         LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(22, 18, 22, 14); root.setBackgroundColor(Color.rgb(248,248,248));
         TextView title = new TextView(this); title.setText("QuietLapse"); title.setTextSize(28); title.setTextColor(Color.BLACK); root.addView(title);
         TextView help = new TextView(this); help.setText("TIMELAPSE — se motivet i kamera-previewet, før du starter."); help.setTextSize(15); help.setPadding(0,8,0,8); root.addView(help);
         preview = new AspectSurfaceView(this); ((AspectSurfaceView)preview).setAspectRatio(3, 4); holder = preview.getHolder(); holder.addCallback(this); holder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
-        root.addView(preview, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(220));
+        root.addView(preview, previewParams);
         TextView pLabel = new TextView(this); pLabel.setText("LIVE KAMERAPREVIEW · kameraet frigives under optagelsen"); pLabel.setTextSize(12); pLabel.setTextColor(Color.DKGRAY); root.addView(pLabel);
         TextView lab = new TextView(this); lab.setText("Interval mellem billeder:"); lab.setTextSize(16); root.addView(lab);
         interval = new EditText(this); interval.setSingleLine(true); interval.setInputType(2); interval.setText("60"); interval.setHint("Skriv et tal, fx 10"); root.addView(interval);
@@ -89,7 +92,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         slideshow = new Button(this); slideshow.setText("VÆLG MAPPE OG LAV TIMELAPSE"); root.addView(slideshow);
         TextView st = new TextView(this); st.setText("STATUS"); st.setTextSize(13); st.setTextColor(Color.DKGRAY); st.setPadding(0,8,0,3); root.addView(st);
         status = new TextView(this); status.setText("Klar til optagelse.\nBilleder og video gemmes i Pictures/QuietLapse."); status.setTextSize(15); status.setTextColor(Color.BLACK); status.setPadding(12,12,12,12); status.setBackgroundColor(Color.rgb(230,238,245)); root.addView(status);
-        setContentView(root);
+        scroll.addView(root, new ScrollView.LayoutParams(ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
+        setContentView(scroll);
 
         start.setOnClickListener(v -> {
             if (Build.VERSION.SDK_INT >= 23 && (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED || checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED)) {
@@ -180,6 +184,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         } catch (Exception e) { Toast.makeText(this, "Ingen kompatibel videoafspiller fundet.", Toast.LENGTH_LONG).show(); }
     }
 
+    private int dp(int value) { return (int) (value * getResources().getDisplayMetrics().density + 0.5f); }
+
     private int displayOrientation(int id) {
         Camera.CameraInfo info = new Camera.CameraInfo(); Camera.getCameraInfo(id, info);
         int r = getWindowManager().getDefaultDisplay().getRotation(); int d = r==Surface.ROTATION_0?0:r==Surface.ROTATION_90?90:r==Surface.ROTATION_180?180:270;
@@ -209,11 +215,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         AspectSurfaceView(Context context) { super(context); }
         void setAspectRatio(int width, int height) { if (width > 0 && height > 0) { ratioWidth=width; ratioHeight=height; requestLayout(); } }
         @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-            int width = MeasureSpec.getSize(widthMeasureSpec);
+            int availableWidth = MeasureSpec.getSize(widthMeasureSpec);
+            int width = availableWidth;
             int height = (int)(width * (double)ratioHeight / ratioWidth);
+            int heightMode = MeasureSpec.getMode(heightMeasureSpec);
             int maxHeight = MeasureSpec.getSize(heightMeasureSpec);
-            if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.AT_MOST && height > maxHeight) { height=maxHeight; width=(int)(height*(double)ratioWidth/ratioHeight); }
-            setMeasuredDimension(width,height);
+            // Respect a fixed/maximum height from the layout instead of growing beyond the screen.
+            if (heightMode != MeasureSpec.UNSPECIFIED && height > maxHeight && maxHeight > 0) {
+                height = maxHeight;
+                width = (int)(height * (double)ratioWidth / ratioHeight);
+            }
+            if (MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.EXACTLY) width = Math.min(width, availableWidth);
+            setMeasuredDimension(width, height);
         }
     }
 }
