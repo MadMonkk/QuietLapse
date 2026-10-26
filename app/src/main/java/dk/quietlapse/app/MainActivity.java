@@ -12,6 +12,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.content.res.Configuration;
 import android.hardware.Camera;
 import android.net.Uri;
+import androidx.core.content.FileProvider;
 import android.provider.DocumentsContract;
 import android.database.Cursor;
 import java.io.FileOutputStream;
@@ -37,7 +38,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     EditText interval;
     Spinner unit;
     TextView status;
-    Button start, stop, play, slideshow;
+    Button start, stop, play, slideshow, openFolder;
     Spinner fps;
     static final int PICK_IMAGE_FOLDER = 240;
     SurfaceView preview;
@@ -65,11 +66,28 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                     start.setEnabled(true); stop.setEnabled(false);
                 }
             }
-            start.setEnabled(!recording);
-            stop.setEnabled(recording);
+            updateRecordingButtons(recording);
             if (recording) play.setVisibility(View.GONE);
         }
     };
+
+    private void updateRecordingButtons(boolean active) {
+        if (start == null || stop == null) return;
+        start.setEnabled(!active);
+        stop.setEnabled(active);
+        if (active) {
+            start.setText("●  OPTAGELSE KØRER");
+            start.setTextColor(Color.WHITE);
+            start.setBackground(rounded(Color.rgb(22, 105, 92), 14, Color.rgb(80, 220, 200), 2));
+            stop.setText("■  Stop og lav video");
+            stop.setAlpha(1.0f);
+        } else {
+            start.setText("▶  Start optagelse");
+            start.setTextColor(Color.rgb(5, 25, 32));
+            start.setBackground(rounded(Color.rgb(0, 190, 160), 14, Color.rgb(0, 190, 160), 0));
+            stop.setAlpha(0.65f);
+        }
+    }
 
     private LinearLayout.LayoutParams spacedButtonParams() {
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
@@ -137,21 +155,23 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         pLabel.setTextSize(12); pLabel.setTextColor(Color.rgb(145, 166, 190));
         pLabel.setPadding(0, dp(8), 0, dp(8)); root.addView(pLabel);
         TextView lab = sectionLabel("OPTAGELSE  /  Interval mellem billeder"); root.addView(lab);
-        interval = new EditText(this); interval.setSingleLine(true); interval.setInputType(2); interval.setText("60"); interval.setHint("Skriv et tal, fx 10");
+        interval = new EditText(this); interval.setSingleLine(true); interval.setInputType(2); interval.setText("15"); interval.setHint("Skriv et tal, fx 10");
         interval.setTextColor(Color.WHITE); interval.setHintTextColor(Color.rgb(135, 151, 174));
         interval.setPadding(dp(12), dp(10), dp(12), dp(10));
         interval.setBackground(rounded(Color.rgb(35, 48, 67), 12, Color.rgb(65, 83, 105), 1)); root.addView(interval);
-        unit = new Spinner(this); unit.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"sekunder", "minutter"})); unit.setSelection(1); styleSpinner(unit); root.addView(unit);
+        unit = new Spinner(this); unit.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"sekunder", "minutter"})); unit.setSelection(0); styleSpinner(unit); root.addView(unit);
         start = new Button(this); start.setText("▶  Start optagelse");
         styleButton(start, Color.rgb(0, 190, 160), Color.rgb(5, 25, 32)); root.addView(start, spacedButtonParams());
         stop = new Button(this); stop.setText("■  Stop og lav video"); stop.setEnabled(false);
         styleButton(stop, Color.rgb(235, 94, 105), Color.WHITE); root.addView(stop, spacedButtonParams());
         play = new Button(this); play.setText("▶  Afspil færdig video"); play.setVisibility(View.GONE);
         styleButton(play, Color.rgb(88, 115, 240), Color.WHITE); root.addView(play, spacedButtonParams());
-        TextView slideLabel = sectionLabel("BILLEDMAPPE  /  Opret timelapse"); root.addView(slideLabel);
+        TextView slideLabel = sectionLabel("VIDEOINDSTILLINGER  /  Hastighed for alle timelapse-videoer"); root.addView(slideLabel);
         fps = new Spinner(this); fps.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"2 billeder/sek. (langsom)", "5 billeder/sek.", "10 billeder/sek.", "15 billeder/sek.", "24 billeder/sek. (hurtig)"})); fps.setSelection(2); styleSpinner(fps); root.addView(fps);
-        slideshow = new Button(this); slideshow.setText("▧  Vælg mappe og lav timelapse");
+        slideshow = new Button(this); slideshow.setText("▧  Vælg billedmappe og lav timelapse");
         styleButton(slideshow, Color.rgb(51, 70, 99), Color.WHITE); root.addView(slideshow, spacedButtonParams());
+        openFolder = new Button(this); openFolder.setText("▣  Åbn mappen med billeder");
+        styleButton(openFolder, Color.rgb(35, 48, 67), Color.WHITE); root.addView(openFolder, spacedButtonParams());
         TextView st = sectionLabel("STATUS  /  Aktivitet"); root.addView(st);
         status = new TextView(this); status.setText("Klar til optagelse.\nBilleder og video gemmes i Pictures/QuietLapse."); status.setTextSize(14); status.setTextColor(Color.rgb(225, 235, 246));
         status.setPadding(dp(14), dp(14), dp(14), dp(14));
@@ -168,13 +188,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             releasePreview();
             long ms = n * (unit.getSelectedItemPosition()==1 ? 60000L : 1000L);
             Intent i = new Intent(this, CaptureService.class); i.setAction(CaptureService.ACTION_START); i.putExtra("interval_ms", ms);
+            i.putExtra("frame_rate", selectedFrameRate());
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
-            recording = true; start.setEnabled(false); stop.setEnabled(true); play.setVisibility(View.GONE);
+            recording = true; updateRecordingButtons(true); play.setVisibility(View.GONE);
             status.setText("STARTER KAMERA …\nPreview slukkes, mens optagelsen bruger kameraet.");
         });
         stop.setOnClickListener(v -> { Intent i = new Intent(this, CaptureService.class); i.setAction(CaptureService.ACTION_STOP); if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i); stop.setEnabled(false); status.setText("STOPPER …\nVideoen bliver lavet. Vent, til der står FÆRDIG."); });
         play.setOnClickListener(v -> playVideo());
         slideshow.setOnClickListener(v -> { Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE); pick.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION); startActivityForResult(pick, PICK_IMAGE_FOLDER); });
+        openFolder.setOnClickListener(v -> openPicturesFolder());
     }
 
     @Override protected void onSaveInstanceState(Bundle out) {
@@ -188,8 +210,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     @Override protected void onRestoreInstanceState(Bundle state) {
         super.onRestoreInstanceState(state);
-        if (interval != null) interval.setText(state.getString("interval", "60"));
-        if (unit != null) unit.setSelection(state.getInt("unit", 1));
+        if (interval != null) interval.setText(state.getString("interval", "15"));
+        if (unit != null) unit.setSelection(state.getInt("unit", 0));
         if (fps != null) fps.setSelection(state.getInt("fps", 2));
         lastVideoPath = state.getString("lastVideoPath", lastVideoPath);
         recording = state.getBoolean("recording", recording);
@@ -201,8 +223,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         super.onConfigurationChanged(newConfig);
         // Keep entered values and active work intact; Android will remeasure the scrollable layout.
         if (preview != null) {
-            ((AspectSurfaceView)preview).setAspectRatio(newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE ? 4 : 4,
-                    newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE ? 3 : 3);
+            ((AspectSurfaceView)preview).setAspectRatio(4, 3);
+            preview.post(() -> { if (!recording) { releasePreview(); startPreview(); } });
         }
     }
 
@@ -211,7 +233,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (requestCode != PICK_IMAGE_FOLDER || resultCode != RESULT_OK || data == null || data.getData() == null) return;
         Uri tree = data.getData();
         try { getContentResolver().takePersistableUriPermission(tree, data.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch (Exception ignored) {}
-        final int frameRate = new int[]{2,5,10,15,24}[fps.getSelectedItemPosition()];
+        final int frameRate = selectedFrameRate();
         slideshow.setEnabled(false); start.setEnabled(false); stop.setEnabled(false); play.setVisibility(View.GONE);
         status.setText("LÆSER BILLEDMAPPE …\nVent mens billederne samles til video.");
         new Thread(() -> {
@@ -267,14 +289,37 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     }
     private void deleteTree(File f) { if (f.isDirectory()) { File[] children = f.listFiles(); if (children != null) for (File child : children) deleteTree(child); } f.delete(); }
 
+    private int selectedFrameRate() {
+        int[] rates = new int[]{2, 5, 10, 15, 24};
+        return rates[Math.max(0, Math.min(rates.length - 1, fps.getSelectedItemPosition()))];
+    }
+
+    private void openPicturesFolder() {
+        try {
+            Uri initial = DocumentsContract.buildDocumentUri(
+                    "com.android.externalstorage.documents", "primary:Pictures/QuietLapse");
+            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+            if (Build.VERSION.SDK_INT >= 26) i.putExtra(DocumentsContract.EXTRA_INITIAL_URI, initial);
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            startActivity(i);
+        } catch (Exception e) {
+            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            startActivity(i);
+        }
+    }
+
     private void playVideo() {
         if (lastVideoPath == null) { Toast.makeText(this, "Videoens placering er ikke kendt endnu. Se Pictures/QuietLapse.", Toast.LENGTH_LONG).show(); return; }
         File f = new File(lastVideoPath);
         if (!f.exists()) { Toast.makeText(this, "Videoen blev ikke fundet: " + lastVideoPath, Toast.LENGTH_LONG).show(); return; }
         try {
-            Uri uri = Uri.fromFile(f); Intent i = new Intent(Intent.ACTION_VIEW); i.setDataAndType(uri, "video/mp4");
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION); startActivity(i);
-        } catch (Exception e) { Toast.makeText(this, "Ingen kompatibel videoafspiller fundet.", Toast.LENGTH_LONG).show(); }
+            Uri uri = FileProvider.getUriForFile(this, "dk.quietlapse.app.fileprovider", f);
+            Intent i = new Intent(Intent.ACTION_VIEW);
+            i.setDataAndType(uri, "video/mp4");
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(i, "Afspil timelapse-video"));
+        } catch (Exception e) { Toast.makeText(this, "Kunne ikke åbne videoen: " + (e.getMessage() == null ? "ukendt fejl" : e.getMessage()), Toast.LENGTH_LONG).show(); }
     }
 
     private int dp(int value) { return (int) (value * getResources().getDisplayMetrics().density + 0.5f); }
@@ -300,9 +345,22 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         } catch (Exception e) { status.setText("Preview kunne ikke startes. Kontrollér at kameraet ikke bruges af en anden app."); releasePreview(); }
     }
     private void releasePreview() { if (previewCamera != null) { try { previewCamera.stopPreview(); } catch (Exception ignored) {} try { previewCamera.release(); } catch (Exception ignored) {} previewCamera = null; } }
-    @Override protected void onResume() { super.onResume(); recording = CaptureService.isCapturing; start.setEnabled(!recording); stop.setEnabled(recording); IntentFilter f = new IntentFilter(CaptureService.ACTION_STATUS); if (Build.VERSION.SDK_INT >= 33) registerReceiver(statusReceiver, f, Context.RECEIVER_NOT_EXPORTED); else registerReceiver(statusReceiver, f); if (!recording) startPreview(); }
+    @Override protected void onResume() {
+        super.onResume();
+        recording = CaptureService.isCapturing;
+        updateRecordingButtons(recording);
+        IntentFilter f = new IntentFilter(CaptureService.ACTION_STATUS);
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(statusReceiver, f, Context.RECEIVER_NOT_EXPORTED); else registerReceiver(statusReceiver, f);
+        if (!recording && preview != null) preview.post(this::startPreview);
+    }
     @Override protected void onPause() { try { unregisterReceiver(statusReceiver); } catch (Exception ignored) {} releasePreview(); super.onPause(); }
-    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) { super.onRequestPermissionsResult(requestCode, permissions, results); if (requestCode==100) status.setText("Tilladelser behandlet. Tryk Start igen."); }
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode==100) {
+            status.setText("Tilladelser behandlet. Tryk Start igen.");
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) preview.post(this::startPreview);
+        }
+    }
     private static class AspectSurfaceView extends SurfaceView {
         private int ratioWidth = 3, ratioHeight = 4;
         AspectSurfaceView(Context context) { super(context); }

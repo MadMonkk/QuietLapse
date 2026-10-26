@@ -20,7 +20,8 @@ public class CaptureService extends Service {
     private Camera camera;
     private SurfaceTexture texture;
     private Runnable captureTask;
-    private long interval=60000;
+    private long interval=15000;
+    private int frameRate=15;
     private File sessionDir;
     private boolean running=false;
     private int savedCount=0;
@@ -43,7 +44,8 @@ public class CaptureService extends Service {
     }
     @Override public int onStartCommand(Intent intent, int flags, int id) {
         if (intent != null && ACTION_START.equals(intent.getAction())) {
-            interval = intent.getLongExtra("interval_ms",60000);
+            interval = intent.getLongExtra("interval_ms",15000);
+            frameRate = intent.getIntExtra("frame_rate",15);
             startForeground(7, notification("Starter kamera …"));
             reportStatus("Starter kamera …");
             if (!running) begin();
