@@ -1,11 +1,9 @@
-# QuietLapse v0.4.1 – scroll- og previewrettelse
+# QuietLapse v0.5 – Design & rotation
 
-Denne version bygger videre på v0.4 med timelapse fra en eksisterende billedmappe.
+- Modern dark navy interface with teal, coral and indigo accents.
+- Scrollable screen and compact camera preview retained.
+- Screen rotation is handled without recreating MainActivity (`orientation|screenSize|keyboardHidden`), so UI values and active slideshow thread are not reset by a rotation.
+- Added instance-state saving as a fallback for system recreation.
+- CaptureService was intentionally left unchanged to protect stable background capture.
 
-Rettelser:
-- Hele skærmens indhold ligger nu i en lodret ScrollView, så knapper og status kan nås ved at rulle.
-- Kamerapreview har en begrænset højde på 220 dp, så det ikke skubber resten af appen væk.
-- Previewets mål respekterer nu layoutets højdebegrænsning.
-
-Byg APK via GitHub Actions-workflowet i `.github/workflows/build.yml`.
-Bemærk: Kildekoden er ændret, men APK er ikke bygget eller testet på en fysisk telefon i denne session.
+Build with the repository's GitHub Actions workflow. This source ZIP has not been built or tested on a physical OnePlus 3T in this environment.

@@ -8,6 +8,8 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
+import android.content.res.Configuration;
 import android.hardware.Camera;
 import android.net.Uri;
 import android.provider.DocumentsContract;
@@ -69,29 +71,91 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
     };
 
+    private LinearLayout.LayoutParams spacedButtonParams() {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        p.topMargin = dp(8);
+        return p;
+    }
+
+    private GradientDrawable rounded(int color, int radiusDp, int strokeColor, int strokeDp) {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(color);
+        d.setCornerRadius(dp(radiusDp));
+        if (strokeDp > 0) d.setStroke(dp(strokeDp), strokeColor);
+        return d;
+    }
+
+    private void styleButton(Button b, int bg, int fg) {
+        b.setAllCaps(false);
+        b.setTextColor(fg);
+        b.setTextSize(15);
+        b.setPadding(dp(16), dp(13), dp(16), dp(13));
+        b.setMinHeight(dp(48));
+        b.setBackground(rounded(bg, 14, bg, 0));
+        if (Build.VERSION.SDK_INT >= 21) b.setElevation(dp(2));
+    }
+
+    private void styleSpinner(Spinner s) {
+        s.setPadding(dp(10), dp(5), dp(10), dp(5));
+        s.setBackground(rounded(Color.rgb(35, 48, 67), 12, Color.rgb(65, 83, 105), 1));
+    }
+
+    private TextView sectionLabel(String text) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextSize(14);
+        t.setTextColor(Color.rgb(80, 220, 200));
+        t.setPadding(0, dp(12), 0, dp(5));
+        return t;
+    }
+
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
+        scroll.setVerticalScrollBarEnabled(true);
+        scroll.setScrollbarFadingEnabled(false);
+        scroll.setBackgroundColor(Color.rgb(12, 20, 36));
         LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(22, 18, 22, 14); root.setBackgroundColor(Color.rgb(248,248,248));
-        TextView title = new TextView(this); title.setText("QuietLapse"); title.setTextSize(28); title.setTextColor(Color.BLACK); root.addView(title);
-        TextView help = new TextView(this); help.setText("TIMELAPSE — se motivet i kamera-previewet, før du starter."); help.setTextSize(15); help.setPadding(0,8,0,8); root.addView(help);
-        preview = new AspectSurfaceView(this); ((AspectSurfaceView)preview).setAspectRatio(3, 4); holder = preview.getHolder(); holder.addCallback(this); holder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
+        root.setPadding(dp(18), dp(18), dp(18), dp(20));
+        root.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{Color.rgb(12, 20, 36), Color.rgb(20, 31, 51)}));
+        TextView title = new TextView(this); title.setText("QuietLapse"); title.setTextSize(30);
+        title.setTypeface(null, android.graphics.Typeface.BOLD); title.setTextColor(Color.WHITE);
+        title.setPadding(0, 0, 0, dp(2)); root.addView(title);
+        TextView help = new TextView(this); help.setText("TIMELAPSE  •  Fang tiden i bevægelse");
+        help.setTextSize(14); help.setTextColor(Color.rgb(177, 193, 212));
+        help.setPadding(0, dp(4), 0, dp(12)); root.addView(help);
+        preview = new AspectSurfaceView(this); ((AspectSurfaceView)preview).setAspectRatio(4, 3); holder = preview.getHolder(); holder.addCallback(this); holder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
         LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(220));
+        previewParams.gravity = android.view.Gravity.CENTER_HORIZONTAL;
+        preview.setBackground(rounded(Color.rgb(7, 12, 22), 18, Color.rgb(55, 82, 105), 1));
         root.addView(preview, previewParams);
-        TextView pLabel = new TextView(this); pLabel.setText("LIVE KAMERAPREVIEW · kameraet frigives under optagelsen"); pLabel.setTextSize(12); pLabel.setTextColor(Color.DKGRAY); root.addView(pLabel);
-        TextView lab = new TextView(this); lab.setText("Interval mellem billeder:"); lab.setTextSize(16); root.addView(lab);
-        interval = new EditText(this); interval.setSingleLine(true); interval.setInputType(2); interval.setText("60"); interval.setHint("Skriv et tal, fx 10"); root.addView(interval);
-        unit = new Spinner(this); unit.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"sekunder", "minutter"})); unit.setSelection(1); root.addView(unit);
-        start = new Button(this); start.setText("▶  START OPTAGELSE"); root.addView(start);
-        stop = new Button(this); stop.setText("■  STOP OG LAV VIDEO"); stop.setEnabled(false); root.addView(stop);
-        play = new Button(this); play.setText("▶  AFSPIL FÆRDIG VIDEO"); play.setVisibility(View.GONE); root.addView(play);
-        TextView slideLabel = new TextView(this); slideLabel.setText("Lav timelapse fra eksisterende billeder:"); slideLabel.setTextSize(16); slideLabel.setPadding(0,10,0,0); root.addView(slideLabel);
-        fps = new Spinner(this); fps.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"2 billeder/sek. (langsom)", "5 billeder/sek.", "10 billeder/sek.", "15 billeder/sek.", "24 billeder/sek. (hurtig)"})); fps.setSelection(2); root.addView(fps);
-        slideshow = new Button(this); slideshow.setText("VÆLG MAPPE OG LAV TIMELAPSE"); root.addView(slideshow);
-        TextView st = new TextView(this); st.setText("STATUS"); st.setTextSize(13); st.setTextColor(Color.DKGRAY); st.setPadding(0,8,0,3); root.addView(st);
-        status = new TextView(this); status.setText("Klar til optagelse.\nBilleder og video gemmes i Pictures/QuietLapse."); status.setTextSize(15); status.setTextColor(Color.BLACK); status.setPadding(12,12,12,12); status.setBackgroundColor(Color.rgb(230,238,245)); root.addView(status);
+        TextView pLabel = new TextView(this); pLabel.setText("● LIVE KAMERAPREVIEW  ·  frigives under optagelse");
+        pLabel.setTextSize(12); pLabel.setTextColor(Color.rgb(145, 166, 190));
+        pLabel.setPadding(0, dp(8), 0, dp(8)); root.addView(pLabel);
+        TextView lab = sectionLabel("OPTAGELSE  /  Interval mellem billeder"); root.addView(lab);
+        interval = new EditText(this); interval.setSingleLine(true); interval.setInputType(2); interval.setText("60"); interval.setHint("Skriv et tal, fx 10");
+        interval.setTextColor(Color.WHITE); interval.setHintTextColor(Color.rgb(135, 151, 174));
+        interval.setPadding(dp(12), dp(10), dp(12), dp(10));
+        interval.setBackground(rounded(Color.rgb(35, 48, 67), 12, Color.rgb(65, 83, 105), 1)); root.addView(interval);
+        unit = new Spinner(this); unit.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"sekunder", "minutter"})); unit.setSelection(1); styleSpinner(unit); root.addView(unit);
+        start = new Button(this); start.setText("▶  Start optagelse");
+        styleButton(start, Color.rgb(0, 190, 160), Color.rgb(5, 25, 32)); root.addView(start, spacedButtonParams());
+        stop = new Button(this); stop.setText("■  Stop og lav video"); stop.setEnabled(false);
+        styleButton(stop, Color.rgb(235, 94, 105), Color.WHITE); root.addView(stop, spacedButtonParams());
+        play = new Button(this); play.setText("▶  Afspil færdig video"); play.setVisibility(View.GONE);
+        styleButton(play, Color.rgb(88, 115, 240), Color.WHITE); root.addView(play, spacedButtonParams());
+        TextView slideLabel = sectionLabel("BILLEDMAPPE  /  Opret timelapse"); root.addView(slideLabel);
+        fps = new Spinner(this); fps.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"2 billeder/sek. (langsom)", "5 billeder/sek.", "10 billeder/sek.", "15 billeder/sek.", "24 billeder/sek. (hurtig)"})); fps.setSelection(2); styleSpinner(fps); root.addView(fps);
+        slideshow = new Button(this); slideshow.setText("▧  Vælg mappe og lav timelapse");
+        styleButton(slideshow, Color.rgb(51, 70, 99), Color.WHITE); root.addView(slideshow, spacedButtonParams());
+        TextView st = sectionLabel("STATUS  /  Aktivitet"); root.addView(st);
+        status = new TextView(this); status.setText("Klar til optagelse.\nBilleder og video gemmes i Pictures/QuietLapse."); status.setTextSize(14); status.setTextColor(Color.rgb(225, 235, 246));
+        status.setPadding(dp(14), dp(14), dp(14), dp(14));
+        status.setBackground(rounded(Color.rgb(29, 43, 64), 14, Color.rgb(55, 75, 100), 1)); root.addView(status);
         scroll.addView(root, new ScrollView.LayoutParams(ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
         setContentView(scroll);
 
@@ -111,6 +175,35 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         stop.setOnClickListener(v -> { Intent i = new Intent(this, CaptureService.class); i.setAction(CaptureService.ACTION_STOP); if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i); stop.setEnabled(false); status.setText("STOPPER …\nVideoen bliver lavet. Vent, til der står FÆRDIG."); });
         play.setOnClickListener(v -> playVideo());
         slideshow.setOnClickListener(v -> { Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE); pick.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION); startActivityForResult(pick, PICK_IMAGE_FOLDER); });
+    }
+
+    @Override protected void onSaveInstanceState(Bundle out) {
+        super.onSaveInstanceState(out);
+        if (interval != null) out.putString("interval", interval.getText().toString());
+        if (unit != null) out.putInt("unit", unit.getSelectedItemPosition());
+        if (fps != null) out.putInt("fps", fps.getSelectedItemPosition());
+        if (lastVideoPath != null) out.putString("lastVideoPath", lastVideoPath);
+        out.putBoolean("recording", recording);
+    }
+
+    @Override protected void onRestoreInstanceState(Bundle state) {
+        super.onRestoreInstanceState(state);
+        if (interval != null) interval.setText(state.getString("interval", "60"));
+        if (unit != null) unit.setSelection(state.getInt("unit", 1));
+        if (fps != null) fps.setSelection(state.getInt("fps", 2));
+        lastVideoPath = state.getString("lastVideoPath", lastVideoPath);
+        recording = state.getBoolean("recording", recording);
+        start.setEnabled(!recording);
+        stop.setEnabled(recording);
+    }
+
+    @Override public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // Keep entered values and active work intact; Android will remeasure the scrollable layout.
+        if (preview != null) {
+            ((AspectSurfaceView)preview).setAspectRatio(newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE ? 4 : 4,
+                    newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE ? 3 : 3);
+        }
     }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
