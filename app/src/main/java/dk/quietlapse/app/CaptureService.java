@@ -142,7 +142,9 @@ public class CaptureService extends Service {
         }).start();
     }
     private static class EncodeState { int track=-1; boolean muxStarted=false; }
-    private void encode(File[] pics, File outFile) throws Exception {
+    public static void encodeImages(File[] pics, File outFile, int frameRate) throws Exception { new CaptureService().encode(pics, outFile, frameRate); }
+    private void encode(File[] pics, File outFile) throws Exception { encode(pics, outFile, 15); }
+    private void encode(File[] pics, File outFile, int frameRate) throws Exception {
         if (pics.length==0) throw new IOException("Ingen billeder");
         android.graphics.Bitmap first=android.graphics.BitmapFactory.decodeFile(pics[0].getAbsolutePath());
         if (first==null) throw new IOException("Første billede kunne ikke læses");
@@ -155,7 +157,7 @@ public class CaptureService extends Service {
         MediaFormat fmt=MediaFormat.createVideoFormat("video/avc",w,h);
         fmt.setInteger(MediaFormat.KEY_COLOR_FORMAT,MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
         fmt.setInteger(MediaFormat.KEY_BIT_RATE,2500000);
-        fmt.setInteger(MediaFormat.KEY_FRAME_RATE,15);
+        fmt.setInteger(MediaFormat.KEY_FRAME_RATE,frameRate);
         fmt.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL,1);
         MediaCodec codec=MediaCodec.createEncoderByType("video/avc");
         codec.configure(fmt,null,null,MediaCodec.CONFIGURE_FLAG_ENCODE);
@@ -168,7 +170,7 @@ public class CaptureService extends Service {
             for (File pic:pics) {
                 android.graphics.Bitmap bm=android.graphics.BitmapFactory.decodeFile(pic.getAbsolutePath());
                 if (bm==null) continue;
-                android.graphics.Bitmap scaled=android.graphics.Bitmap.createScaledBitmap(bm,w,h,true);
+                android.graphics.Bitmap scaled=fitBitmap(bm,w,h);
                 int in=codec.dequeueInputBuffer(10000);
                 if(in<0) { drainEncoder(codec,muxer,info,state,false); in=codec.dequeueInputBuffer(10000); }
                 if(in>=0) {
@@ -176,7 +178,7 @@ public class CaptureService extends Service {
                     java.nio.ByteBuffer buf=codec.getInputBuffer(in); buf.clear();
                     buf.put(yuv,0,yuv.length);
                     codec.queueInputBuffer(in,0,yuv.length,pts,0);
-                    pts += 1000000L/15;
+                    pts += 1000000L/frameRate;
                 }
                 if(scaled!=bm) scaled.recycle(); bm.recycle();
                 drainEncoder(codec,muxer,info,state,false);
@@ -210,6 +212,15 @@ public class CaptureService extends Service {
                 if(eos) done=true;
             }
         }
+    }
+    private android.graphics.Bitmap fitBitmap(android.graphics.Bitmap source, int width, int height) {
+        android.graphics.Bitmap target = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas canvas = new android.graphics.Canvas(target); canvas.drawColor(android.graphics.Color.BLACK);
+        float scale = Math.min((float)width/source.getWidth(), (float)height/source.getHeight());
+        float dw = source.getWidth()*scale, dh = source.getHeight()*scale;
+        android.graphics.RectF dst = new android.graphics.RectF((width-dw)/2f,(height-dh)/2f,(width+dw)/2f,(height+dh)/2f);
+        canvas.drawBitmap(source, null, dst, new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG));
+        return target;
     }
     private byte[] bitmapToNV12(android.graphics.Bitmap b,int w,int h) {
         int[] pix=new int[w*h]; b.getPixels(pix,0,w,0,0,w,h);
