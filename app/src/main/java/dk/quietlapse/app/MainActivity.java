@@ -8,6 +8,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.SurfaceTexture;
 import android.graphics.drawable.GradientDrawable;
 import android.content.res.Configuration;
 import android.hardware.Camera;
@@ -26,23 +27,21 @@ import java.util.Locale;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.Surface;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
+import android.view.TextureView;
 import android.view.View;
 import android.widget.*;
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
 
-public class MainActivity extends Activity implements SurfaceHolder.Callback {
+public class MainActivity extends Activity implements TextureView.SurfaceTextureListener {
     EditText interval;
     Spinner unit;
     TextView status;
     Button start, stop, play, slideshow, openFolder;
     Spinner fps;
     static final int PICK_IMAGE_FOLDER = 240;
-    SurfaceView preview;
-    SurfaceHolder holder;
+    AspectTextureView preview;
     Camera previewCamera;
     boolean recording = false;
     String lastVideoPath;
@@ -146,7 +145,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         TextView help = new TextView(this); help.setText("TIMELAPSE  •  Fang tiden i bevægelse");
         help.setTextSize(14); help.setTextColor(Color.rgb(177, 193, 212));
         help.setPadding(0, dp(4), 0, dp(12)); root.addView(help);
-        preview = new AspectSurfaceView(this); ((AspectSurfaceView)preview).setAspectRatio(4, 3); holder = preview.getHolder(); holder.addCallback(this); holder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
+        preview = new AspectTextureView(this); preview.setAspectRatio(4, 3); preview.setSurfaceTextureListener(this);
         LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(220));
         previewParams.gravity = android.view.Gravity.CENTER_HORIZONTAL;
         preview.setBackground(rounded(Color.rgb(7, 12, 22), 18, Color.rgb(55, 82, 105), 1));
@@ -223,7 +222,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         super.onConfigurationChanged(newConfig);
         // Keep entered values and active work intact; Android will remeasure the scrollable layout.
         if (preview != null) {
-            ((AspectSurfaceView)preview).setAspectRatio(4, 3);
+            ((AspectTextureView)preview).setAspectRatio(4, 3);
             preview.post(() -> { if (!recording) { releasePreview(); startPreview(); } });
         }
     }
@@ -330,15 +329,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) return (360 - ((info.orientation+d)%360))%360;
         return (info.orientation-d+360)%360;
     }
-    @Override public void surfaceCreated(SurfaceHolder h) { startPreview(); }
-    @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int he) { startPreview(); }
-    @Override public void surfaceDestroyed(SurfaceHolder h) { releasePreview(); }
+    @Override public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) { startPreview(); }
+    @Override public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) { if (!recording) { releasePreview(); startPreview(); } }
+    @Override public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) { releasePreview(); return true; }
+    @Override public void onSurfaceTextureUpdated(SurfaceTexture surface) { }
     private void startPreview() {
-        if (recording || holder == null || !holder.getSurface().isValid()) return;
+        if (recording || preview == null || !preview.isAvailable() || preview.getSurfaceTexture() == null) return;
         if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return;
         try {
             if (previewCamera == null) previewCamera = Camera.open(0);
-            previewCamera.setDisplayOrientation(displayOrientation(0)); previewCamera.setPreviewDisplay(holder);
+            previewCamera.setDisplayOrientation(displayOrientation(0)); previewCamera.setPreviewTexture(preview.getSurfaceTexture());
             Camera.Parameters p = previewCamera.getParameters(); List<String> modes = p.getSupportedFocusModes();
             if (modes != null) { if (modes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE)) p.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE); else if (modes.contains(Camera.Parameters.FOCUS_MODE_AUTO)) p.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO); }
             previewCamera.setParameters(p); previewCamera.startPreview();
@@ -361,9 +361,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) preview.post(this::startPreview);
         }
     }
-    private static class AspectSurfaceView extends SurfaceView {
+    private static class AspectTextureView extends TextureView {
         private int ratioWidth = 3, ratioHeight = 4;
-        AspectSurfaceView(Context context) { super(context); }
+        AspectTextureView(Context context) { super(context); setOpaque(false); }
         void setAspectRatio(int width, int height) { if (width > 0 && height > 0) { ratioWidth=width; ratioHeight=height; requestLayout(); } }
         @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
             int availableWidth = MeasureSpec.getSize(widthMeasureSpec);
