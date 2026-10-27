@@ -9,7 +9,7 @@ android {
         minSdk 28
         targetSdk 28
         versionCode 3
-        versionName '0.7-power-save'
+        versionName '0.6.2-progress'
     }
 }
 

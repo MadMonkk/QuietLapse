@@ -18,8 +18,11 @@ Denne udgave erstatter previewets `SurfaceView` med `TextureView` og kobler Came
 Andre ændringer fra 0.5.1 bevares: standardinterval 15 sekunder, FPS-valg, synlig optagelsesknap, FileProvider-afspilning og mappevalg.
 
 
-## QuietLapse Classic v0.7 – strøm og opløsning
-- Valg af høj, mellem (~3 MP) eller lav (~1 MP) fotoopløsning; standard er højeste understøttede opløsning.
-- Valgfri strømbesparelse stopper kamera-preview mellem billeder og starter det igen kort før næste optagelse.
-- Viser procent og antal behandlede billeder under videodannelse.
-- Denne kildekode er ændret, men APK er ikke bygget eller testet på en fysisk telefon i denne levering. Test først en kort optagelse med 10-20 billeder, og kontrollér at billederne gemmes korrekt, før en lang natteoptagelse.
+## QuietLapse Classic v0.6.2 – progress
+
+- Baseret direkte på brugerens v0.6.1-startup-fix kildekode.
+- Viser procent og antal behandlede billeder under video-encoding, både for stop-af-optagelse og slideshow fra billedmappe.
+- Viser også status under kopiering af billeder til midlertidig mappe.
+- Ingen ændringer til kamera-previewets opbygning eller strømbesparelse i denne version.
+
+Bemærk: Kildekoden er ændret, men er ikke bygget eller testet på en fysisk telefon i dette miljø. Byg via GitHub Actions og test først med en lille billedmappe.

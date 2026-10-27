@@ -22,9 +22,6 @@ public class CaptureService extends Service {
     private Runnable captureTask;
     private long interval=15000;
     private int frameRate=15;
-    private int resolutionMode=0; // 0=high, 1=medium, 2=low
-    private boolean powerSave=false;
-    private boolean previewActive=false;
     private File sessionDir;
     private boolean running=false;
     private int savedCount=0;
@@ -49,8 +46,6 @@ public class CaptureService extends Service {
         if (intent != null && ACTION_START.equals(intent.getAction())) {
             interval = intent.getLongExtra("interval_ms",15000);
             frameRate = intent.getIntExtra("frame_rate",15);
-            resolutionMode = intent.getIntExtra("resolution_mode",0);
-            powerSave = intent.getBooleanExtra("power_save",false);
             startForeground(7, notification("Starter kamera …"));
             reportStatus("Starter kamera …");
             if (!running) begin();
@@ -80,18 +75,9 @@ public class CaptureService extends Service {
             Camera.Parameters p = camera.getParameters();
             List<Camera.Size> sizes = p.getSupportedPictureSizes();
             if (sizes != null && !sizes.isEmpty()) {
+                // Choose the highest supported resolution (the first version accidentally chose the smallest).
                 Camera.Size best = sizes.get(0);
-                if (resolutionMode == 0) {
-                    for (Camera.Size s : sizes) if ((long)s.width*s.height > (long)best.width*best.height) best=s;
-                } else {
-                    long targetPixels = resolutionMode == 1 ? 3000000L : 1000000L;
-                    long bestDelta = Math.abs((long)best.width*best.height-targetPixels);
-                    for (Camera.Size s : sizes) {
-                        long pixels = (long)s.width*s.height;
-                        long delta = Math.abs(pixels-targetPixels);
-                        if (delta < bestDelta) { best=s; bestDelta=delta; }
-                    }
-                }
+                for (Camera.Size s : sizes) if ((long)s.width*s.height > (long)best.width*best.height) best=s;
                 p.setPictureSize(best.width,best.height);
             }
             List<String> focusModes = p.getSupportedFocusModes();
@@ -117,24 +103,17 @@ public class CaptureService extends Service {
             p.setRotation(rotation);
             camera.setParameters(p);
             camera.startPreview();
-            previewActive=true;
             running=true;
             isCapturing=true;
             captureTask = new Runnable() {
                 @Override public void run() {
                     if (!running || camera==null) return;
-                    if (powerSave && !previewActive) {
-                        try { camera.startPreview(); previewActive=true; handler.postDelayed(this, 500); }
-                        catch (Exception e) { reportStatus("FEJL: Kamera-preview kunne ikke genstartes."); }
-                        return;
-                    }
                     try { camera.takePicture(null,null, (data, cam) -> {
                         try (FileOutputStream out = new FileOutputStream(new File(sessionDir,String.format(Locale.US,"img_%06d.jpg",System.currentTimeMillis())))) { out.write(data); savedCount++; }
                         catch(Exception e) { reportStatus("FEJL: kunne ikke gemme billedet. Kontrollér lageradgang."); }
-                        if (powerSave) { try { cam.stopPreview(); previewActive=false; } catch(Exception ignored) {} }
-                        else { try { cam.startPreview(); previewActive=true; } catch(Exception ignored) {} }
-                        reportStatus("OPTAGER\nBilleder gemt: " + savedCount + "\nOpløsning: " + (resolutionMode==0 ? "Høj" : resolutionMode==1 ? "Mellem" : "Lav") + (powerSave ? "\nStrømbesparelse aktiv" : "") + "\nMappe: Pictures/QuietLapse/" + sessionDir.getName());
-                    }); } catch(Exception e) { reportStatus("FEJL: Kameraet kunne ikke tage et billede."); }
+                        try { cam.startPreview(); } catch(Exception e) {}
+                        reportStatus("OPTAGER\nBilleder gemt: " + savedCount + "\nMappe: Pictures/QuietLapse/" + sessionDir.getName());
+                    }); } catch(Exception e) {}
                     handler.postDelayed(this, interval);
                 }
             };
@@ -148,7 +127,7 @@ public class CaptureService extends Service {
         running=false; isCapturing=false;
         reportStatus("STOPPER OPTAGELSE\nForbereder video …\nBilleder gemt: " + savedCount);
         if (captureTask!=null) handler.removeCallbacks(captureTask);
-        if (camera!=null) { try { camera.stopPreview(); } catch(Exception ignored){} try { camera.release(); } catch(Exception e){} camera=null; previewActive=false; }
+        if (camera!=null) { try { camera.stopPreview(); camera.release(); } catch(Exception e){} camera=null; }
         if (texture!=null) { try { texture.release(); } catch(Exception e){} texture=null; }
         new Thread(() -> {
             try {
@@ -156,7 +135,7 @@ public class CaptureService extends Service {
                 File[] pics=sessionDir.listFiles((d,n)->n.toLowerCase(Locale.US).endsWith(".jpg"));
                 Arrays.sort(pics, Comparator.comparing(File::getName));
                 File mp4 = new File(sessionDir,"timelapse.mp4");
-                encode(pics,mp4);
+                encode(pics,mp4,frameRate,(done,total)->reportStatus("LAVER VIDEO …\n" + (done*100/Math.max(1,total)) + "%\nBilleder behandlet: " + done + " / " + total));
                 ContentValues cv=new ContentValues(); cv.put(MediaStore.Video.Media.DISPLAY_NAME,"QuietLapse_"+sessionDir.getName()+".mp4"); cv.put(MediaStore.Video.Media.MIME_TYPE,"video/mp4"); cv.put(MediaStore.Video.Media.DATA,mp4.getAbsolutePath());
                 getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI,cv);
                 reportStatus("FÆRDIG\nVideo gemt: Pictures/QuietLapse/" + sessionDir.getName() + "/timelapse.mp4\nBilleder: " + pics.length);
@@ -165,9 +144,12 @@ public class CaptureService extends Service {
         }).start();
     }
     private static class EncodeState { int track=-1; boolean muxStarted=false; }
-    public static void encodeImages(File[] pics, File outFile, int frameRate) throws Exception { new CaptureService().encode(pics, outFile, frameRate); }
-    private void encode(File[] pics, File outFile) throws Exception { encode(pics, outFile, 15); }
-    private void encode(File[] pics, File outFile, int frameRate) throws Exception {
+    public interface ProgressListener { void onProgress(int done, int total); }
+    public static void encodeImages(File[] pics, File outFile, int frameRate) throws Exception { new CaptureService().encode(pics, outFile, frameRate, null); }
+    public static void encodeImages(File[] pics, File outFile, int frameRate, ProgressListener listener) throws Exception { new CaptureService().encode(pics, outFile, frameRate, listener); }
+    private void encode(File[] pics, File outFile) throws Exception { encode(pics, outFile, 15, null); }
+    private void encode(File[] pics, File outFile, int frameRate) throws Exception { encode(pics, outFile, frameRate, null); }
+    private void encode(File[] pics, File outFile, int frameRate, ProgressListener listener) throws Exception {
         if (pics.length==0) throw new IOException("Ingen billeder");
         android.graphics.Bitmap first=android.graphics.BitmapFactory.decodeFile(pics[0].getAbsolutePath());
         if (first==null) throw new IOException("Første billede kunne ikke læses");
@@ -190,11 +172,11 @@ public class CaptureService extends Service {
         EncodeState state=new EncodeState();
         long pts=0;
         try {
-            int processed = 0;
-            int lastReportedPercent = -1;
+            int processed=0;
+            int lastReportedPercent=-1;
             for (File pic:pics) {
                 android.graphics.Bitmap bm=android.graphics.BitmapFactory.decodeFile(pic.getAbsolutePath());
-                if (bm==null) continue;
+                if (bm==null) { processed++; if(listener!=null) { int pct=processed*100/pics.length; if(pct!=lastReportedPercent) { listener.onProgress(processed,pics.length); lastReportedPercent=pct; } } continue; }
                 android.graphics.Bitmap scaled=fitBitmap(bm,w,h);
                 int in=codec.dequeueInputBuffer(10000);
                 if(in<0) { drainEncoder(codec,muxer,info,state,false); in=codec.dequeueInputBuffer(10000); }
@@ -208,13 +190,7 @@ public class CaptureService extends Service {
                 if(scaled!=bm) scaled.recycle(); bm.recycle();
                 drainEncoder(codec,muxer,info,state,false);
                 processed++;
-                if (sessionDir != null) {
-                    int percent = (int)((processed * 100L) / pics.length);
-                    if (percent != lastReportedPercent) {
-                        lastReportedPercent = percent;
-                        reportStatus("DANNER VIDEO\n" + percent + "% færdig\nBilleder behandlet: " + processed + " af " + pics.length);
-                    }
-                }
+                if(listener!=null) { int pct=processed*100/pics.length; if(pct!=lastReportedPercent) { listener.onProgress(processed,pics.length); lastReportedPercent=pct; } }
             }
             int end=codec.dequeueInputBuffer(10000);
             if(end>=0) codec.queueInputBuffer(end,0,0,pts,MediaCodec.BUFFER_FLAG_END_OF_STREAM);
@@ -226,7 +202,6 @@ public class CaptureService extends Service {
             muxer.release();
         }
         if(!state.muxStarted || !outFile.exists() || outFile.length()==0) throw new IOException("MP4 blev ikke oprettet");
-        if (sessionDir != null) reportStatus("DANNER VIDEO\n100% – afslutter videofilen …\nBilleder: " + pics.length);
     }
     private void drainEncoder(MediaCodec codec, MediaMuxer muxer, MediaCodec.BufferInfo info, EncodeState state, boolean end) {
         boolean done=false;
