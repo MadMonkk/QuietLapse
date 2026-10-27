@@ -8,8 +8,8 @@ android {
         applicationId 'dk.quietlapse.app'
         minSdk 28
         targetSdk 28
-        versionCode 4
-        versionName '0.6.4'
+        versionCode 5
+        versionName '0.6.5'
     }
 }
 

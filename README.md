@@ -41,3 +41,11 @@ Build with the existing GitHub Actions workflow. This source ZIP has not been bu
 - Captured images, session folders and generated timelapse videos are stored under `DCIM/QuietLapse`.
 - Added a custom QuietLapse launcher icon.
 - This source update has not been built or tested on a physical device in this environment.
+
+
+## v0.6.5 – forsigtig strømbesparelsestest
+- Kameraet åbnes ved hvert planlagt billede og frigives efter billedet er gemt.
+- Under natpause frigives kameraet, og der tages ingen billeder.
+- Bevarer billed-/videomappen DCIM/QuietLapse og eksisterende videofremdrift.
+- Dette er en testversion: hyppig genåbning af kameraet kan give forsinkelse eller fejl på visse telefoner. Test først med en kort optagelse.
+- APK-artifact: QuietLapse_Version_0.6.5.apk

@@ -68,22 +68,22 @@ public class CaptureService extends Service {
         return b.setContentTitle("QuietLapse").setContentText(s).setSmallIcon(android.R.drawable.ic_menu_camera)
                 .setContentIntent(tap).setAutoCancel(false).build();
     }
-    private void begin() {
+    // Open the camera only when a frame is due. This is intentionally conservative:
+    // the existing JPEG capture path is retained, but the camera is released between frames.
+    private void openCameraForFrame() throws Exception {
+        if (camera != null) return;
+        Camera opened = Camera.open(0);
         try {
-            File base = new File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DCIM),"QuietLapse");
-            if (!base.exists()) base.mkdirs();
-            sessionDir = new File(base, new SimpleDateFormat("yyyyMMdd_HHmmss",Locale.US).format(new Date()));
-            if (!sessionDir.mkdirs()) throw new IOException("Kan ikke oprette optagelsesmappe");
-            camera = Camera.open(0);
             texture = new SurfaceTexture(10);
-            camera.setPreviewTexture(texture);
-            Camera.Parameters p = camera.getParameters();
+            opened.setPreviewTexture(texture);
+            Camera.Parameters p = opened.getParameters();
             List<Camera.Size> sizes = p.getSupportedPictureSizes();
             if (sizes != null && !sizes.isEmpty()) {
-                // Choose the highest supported resolution (the first version accidentally chose the smallest).
                 Camera.Size best = sizes.get(0);
-                for (Camera.Size s : sizes) if ((long)s.width*s.height > (long)best.width*best.height) best=s;
-                p.setPictureSize(best.width,best.height);
+                for (Camera.Size size : sizes) {
+                    if ((long)size.width * size.height > (long)best.width * best.height) best = size;
+                }
+                p.setPictureSize(best.width, best.height);
             }
             List<String> focusModes = p.getSupportedFocusModes();
             if (focusModes != null) {
@@ -93,11 +93,9 @@ public class CaptureService extends Service {
                     p.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
                 }
             }
-            // Store JPEG rotation metadata for a portrait/landscape phone orientation.
-            // The rear camera on many Android phones has a 90-degree sensor offset.
             Camera.CameraInfo info = new Camera.CameraInfo();
             Camera.getCameraInfo(0, info);
-            int rotation = 0;
+            int rotation;
             try {
                 int display = ((android.view.WindowManager)getSystemService(WINDOW_SERVICE)).getDefaultDisplay().getRotation();
                 int degrees = display == android.view.Surface.ROTATION_0 ? 0 : display == android.view.Surface.ROTATION_90 ? 90 : display == android.view.Surface.ROTATION_180 ? 180 : 270;
@@ -106,31 +104,80 @@ public class CaptureService extends Service {
                         : (info.orientation - degrees + 360) % 360;
             } catch (Exception ignored) { rotation = info.orientation; }
             p.setRotation(rotation);
-            camera.setParameters(p);
-            camera.startPreview();
-            running=true;
-            isCapturing=true;
+            opened.setParameters(p);
+            opened.startPreview();
+            camera = opened;
+        } catch (Exception e) {
+            try { opened.release(); } catch (Exception ignored) { }
+            if (texture != null) { try { texture.release(); } catch (Exception ignored) { } texture = null; }
+            throw e;
+        }
+    }
+
+    private void releaseCameraBetweenFrames() {
+        Camera old = camera;
+        camera = null;
+        if (old != null) {
+            try { old.stopPreview(); } catch (Exception ignored) { }
+            try { old.release(); } catch (Exception ignored) { }
+        }
+        if (texture != null) {
+            try { texture.release(); } catch (Exception ignored) { }
+            texture = null;
+        }
+    }
+
+    private void begin() {
+        try {
+            File base = new File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DCIM), "QuietLapse");
+            if (!base.exists() && !base.mkdirs()) throw new IOException("Kan ikke oprette DCIM/QuietLapse");
+            sessionDir = new File(base, new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date()));
+            if (!sessionDir.mkdirs()) throw new IOException("Kan ikke oprette optagelsesmappe");
+            savedCount = 0;
+            running = true;
+            isCapturing = true;
             captureTask = new Runnable() {
                 @Override public void run() {
-                    if (!running || camera==null) return;
+                    if (!running) return;
                     if (skipNight && isNightTime()) {
-                        reportStatus("OPTAGER – NATPAUSE\nIngen billeder tages nu.\nBilleder gemt: " + savedCount + "\nNæste kontrol om " + Math.max(1, interval/60000) + " min.");
-                        handler.postDelayed(this, interval);
+                        releaseCameraBetweenFrames();
+                        reportStatus("OPTAGER – NATPAUSE\nKamera slukket indtil næste kontrol.\nBilleder gemt: " + savedCount);
+                        handler.postDelayed(this, Math.max(interval, 60000L));
                         return;
                     }
-                    try { camera.takePicture(null,null, (data, cam) -> {
-                        try (FileOutputStream out = new FileOutputStream(new File(sessionDir,String.format(Locale.US,"img_%06d.jpg",System.currentTimeMillis())))) { out.write(data); savedCount++; }
-                        catch(Exception e) { reportStatus("FEJL: kunne ikke gemme billedet. Kontrollér lageradgang."); }
-                        try { cam.startPreview(); } catch(Exception e) {}
-                        reportStatus("OPTAGER\nBilleder gemt: " + savedCount + "\nMappe: DCIM/QuietLapse/" + sessionDir.getName());
-                    }); } catch(Exception e) {}
-                    handler.postDelayed(this, interval);
+                    try {
+                        openCameraForFrame();
+                        final Camera current = camera;
+                        current.takePicture(null, null, (data, cam) -> {
+                            try (FileOutputStream out = new FileOutputStream(new File(sessionDir, String.format(Locale.US, "img_%06d.jpg", System.currentTimeMillis())))) {
+                                out.write(data);
+                                savedCount++;
+                            } catch (Exception e) {
+                                reportStatus("FEJL: kunne ikke gemme billedet. Kontrollér lageradgang.");
+                            }
+                            // Release hardware after each shot to avoid running the sensor between intervals.
+                            releaseCameraBetweenFrames();
+                            if (running) {
+                                reportStatus("OPTAGER\nBilleder gemt: " + savedCount + "\nMappe: DCIM/QuietLapse/" + sessionDir.getName());
+                                handler.postDelayed(this, interval);
+                            }
+                        });
+                    } catch (Exception e) {
+                        releaseCameraBetweenFrames();
+                        reportStatus("KAMERAFEJL\nKunne ikke åbne kameraet. Prøver igen ved næste interval.\nBilleder gemt: " + savedCount);
+                        if (running) handler.postDelayed(this, interval);
+                    }
                 }
             };
-            handler.post(captureTask);
-            savedCount=0;
             reportStatus("OPTAGER\nBilleder gemmes i: DCIM/QuietLapse/" + sessionDir.getName() + "\nInterval: " + interval/1000 + " sek.");
-        } catch(Exception e) { running=false; isCapturing=false; reportStatus("FEJL: Kameraet kunne ikke startes. Kontrollér kameratilladelse."); stopForeground(true); stopSelf(); }
+            handler.post(captureTask);
+        } catch (Exception e) {
+            running = false;
+            isCapturing = false;
+            reportStatus("FEJL: Optagelsen kunne ikke startes. Kontrollér kameratilladelse og lageradgang.");
+            stopForeground(true);
+            stopSelf();
+        }
     }
     private boolean isNightTime() {
         Calendar c = Calendar.getInstance();
@@ -144,8 +191,7 @@ public class CaptureService extends Service {
         running=false; isCapturing=false;
         reportStatus("STOPPER OPTAGELSE\nForbereder video …\nBilleder gemt: " + savedCount);
         if (captureTask!=null) handler.removeCallbacks(captureTask);
-        if (camera!=null) { try { camera.stopPreview(); camera.release(); } catch(Exception e){} camera=null; }
-        if (texture!=null) { try { texture.release(); } catch(Exception e){} texture=null; }
+        releaseCameraBetweenFrames();
         new Thread(() -> {
             try {
                 if (sessionDir==null || sessionDir.listFiles()==null || sessionDir.listFiles().length==0) throw new IOException("Ingen billeder blev taget");
@@ -307,6 +353,6 @@ public class CaptureService extends Service {
         }
         return yuv;
     }
-    @Override public void onDestroy() { running=false; isCapturing=false; if(captureTask!=null)handler.removeCallbacks(captureTask); if(camera!=null)try{camera.release();}catch(Exception e){} super.onDestroy(); }
+    @Override public void onDestroy() { running=false; isCapturing=false; if(captureTask!=null)handler.removeCallbacks(captureTask); releaseCameraBetweenFrames(); super.onDestroy(); }
     @Override public android.os.IBinder onBind(Intent i) { return null; }
 }
