@@ -70,7 +70,7 @@ public class CaptureService extends Service {
     }
     private void begin() {
         try {
-            File base = new File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES),"QuietLapse");
+            File base = new File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DCIM),"QuietLapse");
             if (!base.exists()) base.mkdirs();
             sessionDir = new File(base, new SimpleDateFormat("yyyyMMdd_HHmmss",Locale.US).format(new Date()));
             if (!sessionDir.mkdirs()) throw new IOException("Kan ikke oprette optagelsesmappe");
@@ -122,14 +122,14 @@ public class CaptureService extends Service {
                         try (FileOutputStream out = new FileOutputStream(new File(sessionDir,String.format(Locale.US,"img_%06d.jpg",System.currentTimeMillis())))) { out.write(data); savedCount++; }
                         catch(Exception e) { reportStatus("FEJL: kunne ikke gemme billedet. Kontrollér lageradgang."); }
                         try { cam.startPreview(); } catch(Exception e) {}
-                        reportStatus("OPTAGER\nBilleder gemt: " + savedCount + "\nMappe: Pictures/QuietLapse/" + sessionDir.getName());
+                        reportStatus("OPTAGER\nBilleder gemt: " + savedCount + "\nMappe: DCIM/QuietLapse/" + sessionDir.getName());
                     }); } catch(Exception e) {}
                     handler.postDelayed(this, interval);
                 }
             };
             handler.post(captureTask);
             savedCount=0;
-            reportStatus("OPTAGER\nBilleder gemmes i: Pictures/QuietLapse/" + sessionDir.getName() + "\nInterval: " + interval/1000 + " sek.");
+            reportStatus("OPTAGER\nBilleder gemmes i: DCIM/QuietLapse/" + sessionDir.getName() + "\nInterval: " + interval/1000 + " sek.");
         } catch(Exception e) { running=false; isCapturing=false; reportStatus("FEJL: Kameraet kunne ikke startes. Kontrollér kameratilladelse."); stopForeground(true); stopSelf(); }
     }
     private boolean isNightTime() {
@@ -155,8 +155,8 @@ public class CaptureService extends Service {
                 encode(pics,mp4,frameRate,(done,total)->reportStatus("LAVER VIDEO …\n" + (done*100/Math.max(1,total)) + "%\nBilleder behandlet: " + done + " / " + total));
                 ContentValues cv=new ContentValues(); cv.put(MediaStore.Video.Media.DISPLAY_NAME,"QuietLapse_"+sessionDir.getName()+".mp4"); cv.put(MediaStore.Video.Media.MIME_TYPE,"video/mp4"); cv.put(MediaStore.Video.Media.DATA,mp4.getAbsolutePath());
                 getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI,cv);
-                reportStatus("FÆRDIG\nVideo gemt: Pictures/QuietLapse/" + sessionDir.getName() + "/timelapse.mp4\nBilleder: " + pics.length);
-            } catch(Exception e) { reportStatus("VIDEOFEJL\nVideoen kunne ikke laves. Billederne er bevaret i Pictures/QuietLapse."); }
+                reportStatus("FÆRDIG\nVideo gemt: DCIM/QuietLapse/" + sessionDir.getName() + "/timelapse.mp4\nBilleder: " + pics.length);
+            } catch(Exception e) { reportStatus("VIDEOFEJL\nVideoen kunne ikke laves. Billederne er bevaret i DCIM/QuietLapse."); }
             stopForeground(true); stopSelf();
         }).start();
     }

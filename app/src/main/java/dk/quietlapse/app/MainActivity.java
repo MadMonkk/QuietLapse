@@ -60,8 +60,8 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
                     int at = message.indexOf("Video gemt: ");
                     if (at >= 0) {
                         String rel = message.substring(at + 12).split("\\n")[0].trim();
-                        String root = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES).getAbsolutePath();
-                        lastVideoPath = root + "/QuietLapse/" + rel.substring("Pictures/QuietLapse/".length());
+                        String root = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DCIM).getAbsolutePath();
+                        lastVideoPath = root + "/QuietLapse/" + rel.substring("DCIM/QuietLapse/".length());
                     }
                     play.setVisibility(View.VISIBLE);
                 }
@@ -194,7 +194,7 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
         openFolder = new Button(this); openFolder.setText("▣  Åbn mappen med billeder");
         styleButton(openFolder, Color.rgb(35, 48, 67), Color.WHITE); root.addView(openFolder, spacedButtonParams());
         TextView st = sectionLabel("STATUS  /  Aktivitet"); root.addView(st);
-        status = new TextView(this); status.setText("Klar til optagelse.\nBilleder og video gemmes i Pictures/QuietLapse."); status.setTextSize(14); status.setTextColor(Color.rgb(225, 235, 246));
+        status = new TextView(this); status.setText("Klar til optagelse.\nBilleder og video gemmes i DCIM/QuietLapse."); status.setTextSize(14); status.setTextColor(Color.rgb(225, 235, 246));
         status.setPadding(dp(14), dp(14), dp(14), dp(14));
         status.setBackground(rounded(Color.rgb(29, 43, 64), 14, Color.rgb(55, 75, 100), 1)); root.addView(status);
         scroll.addView(root, new ScrollView.LayoutParams(ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
@@ -279,8 +279,8 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
                 }
                 if (copiedCount == 0) throw new IOException("Billederne kunne ikke læses.");
                 copied = java.util.Arrays.copyOf(copied, copiedCount);
-                File base = new File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES), "QuietLapse");
-                if (!base.exists() && !base.mkdirs()) throw new IOException("Kunne ikke oprette Pictures/QuietLapse");
+                File base = new File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DCIM), "QuietLapse");
+                if (!base.exists() && !base.mkdirs()) throw new IOException("Kunne ikke oprette DCIM/QuietLapse");
                 String stamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
                 File outDir = new File(base, "Slideshow_" + stamp); if (!outDir.mkdirs()) throw new IOException("Kunne ikke oprette outputmappe");
                 File mp4 = new File(outDir, "timelapse.mp4");
@@ -325,7 +325,7 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
     private void openPicturesFolder() {
         try {
             Uri initial = DocumentsContract.buildDocumentUri(
-                    "com.android.externalstorage.documents", "primary:Pictures/QuietLapse");
+                    "com.android.externalstorage.documents", "primary:DCIM/QuietLapse");
             Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
             if (Build.VERSION.SDK_INT >= 26) i.putExtra(DocumentsContract.EXTRA_INITIAL_URI, initial);
             i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
@@ -338,7 +338,7 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
     }
 
     private void playVideo() {
-        if (lastVideoPath == null) { Toast.makeText(this, "Videoens placering er ikke kendt endnu. Se Pictures/QuietLapse.", Toast.LENGTH_LONG).show(); return; }
+        if (lastVideoPath == null) { Toast.makeText(this, "Videoens placering er ikke kendt endnu. Se DCIM/QuietLapse.", Toast.LENGTH_LONG).show(); return; }
         File f = new File(lastVideoPath);
         if (!f.exists()) { Toast.makeText(this, "Videoen blev ikke fundet: " + lastVideoPath, Toast.LENGTH_LONG).show(); return; }
         try {

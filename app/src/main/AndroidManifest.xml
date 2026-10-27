@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-feature android:name="android.hardware.camera" android:required="true"/>
-    <application android:theme="@android:style/Theme.Material.Light.NoActionBar" android:label="QuietLapse" android:allowBackup="false">
+    <application android:theme="@android:style/Theme.Material.Light.NoActionBar" android:label="QuietLapse" android:icon="@mipmap/ic_launcher" android:allowBackup="false">
         <activity android:name=".MainActivity" android:exported="true"
             android:configChanges="orientation|screenSize|keyboardHidden">
             <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>

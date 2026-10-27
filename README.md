@@ -34,3 +34,10 @@ Bemærk: Kildekoden er ændret, men er ikke bygget eller testet på en fysisk te
 - The slideshow/folder-to-video path uses the same orientation analysis.
 
 Build with the existing GitHub Actions workflow. This source ZIP has not been built or tested on a physical OnePlus 3T; test a short session and a small mixed-orientation folder before relying on it for a long garden timelapse. Keep the previous working APK and original photos.
+
+
+## QuietLapse Classic v0.6.4
+- APK artifact is named `QuietLapse_Version_0.6.4.apk` in GitHub Actions.
+- Captured images, session folders and generated timelapse videos are stored under `DCIM/QuietLapse`.
+- Added a custom QuietLapse launcher icon.
+- This source update has not been built or tested on a physical device in this environment.
