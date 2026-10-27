@@ -16,3 +16,10 @@ v0.5.1 rettelser: preview genstartes efter rotation/tilladelser; optageknappen v
 Denne udgave erstatter previewets `SurfaceView` med `TextureView` og kobler Camera1 direkte til den aktuelle `SurfaceTexture`. Det er målrettet symptomet med sort forgrund, hvor kameraet tilsyneladende stadig leverer billeder. Det er en kodeændring, ikke en bekræftet løsning: APK skal bygges og testes på OnePlus 3T.
 
 Andre ændringer fra 0.5.1 bevares: standardinterval 15 sekunder, FPS-valg, synlig optagelsesknap, FileProvider-afspilning og mappevalg.
+
+
+## QuietLapse Classic v0.7 – strøm og opløsning
+- Valg af høj, mellem (~3 MP) eller lav (~1 MP) fotoopløsning; standard er højeste understøttede opløsning.
+- Valgfri strømbesparelse stopper kamera-preview mellem billeder og starter det igen kort før næste optagelse.
+- Viser procent og antal behandlede billeder under videodannelse.
+- Denne kildekode er ændret, men APK er ikke bygget eller testet på en fysisk telefon i denne levering. Test først en kort optagelse med 10-20 billeder, og kontrollér at billederne gemmes korrekt, før en lang natteoptagelse.

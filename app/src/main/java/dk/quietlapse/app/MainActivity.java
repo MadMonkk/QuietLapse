@@ -29,7 +29,6 @@ import android.os.Bundle;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
-import android.widget.FrameLayout;
 import android.widget.*;
 import java.io.File;
 import java.io.IOException;
@@ -41,6 +40,8 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
     TextView status;
     Button start, stop, play, slideshow, openFolder;
     Spinner fps;
+    Spinner resolution;
+    CheckBox powerSave;
     static final int PICK_IMAGE_FOLDER = 240;
     AspectTextureView preview;
     Camera previewCamera;
@@ -146,19 +147,11 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
         TextView help = new TextView(this); help.setText("TIMELAPSE  •  Fang tiden i bevægelse");
         help.setTextSize(14); help.setTextColor(Color.rgb(177, 193, 212));
         help.setPadding(0, dp(4), 0, dp(12)); root.addView(help);
-        // TextureView cannot have a background drawable on Android 9. Put the
-        // rounded background/border on a parent FrameLayout instead.
-        FrameLayout previewFrame = new FrameLayout(this);
-        previewFrame.setBackground(rounded(Color.rgb(7, 12, 22), 18, Color.rgb(55, 82, 105), 1));
-        if (Build.VERSION.SDK_INT >= 21) previewFrame.setClipToOutline(true);
-        preview = new AspectTextureView(this);
-        preview.setAspectRatio(4, 3);
-        preview.setSurfaceTextureListener(this);
-        previewFrame.addView(preview, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        preview = new AspectTextureView(this); preview.setAspectRatio(4, 3); preview.setSurfaceTextureListener(this);
         LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(220));
         previewParams.gravity = android.view.Gravity.CENTER_HORIZONTAL;
-        root.addView(previewFrame, previewParams);
+        preview.setBackground(rounded(Color.rgb(7, 12, 22), 18, Color.rgb(55, 82, 105), 1));
+        root.addView(preview, previewParams);
         TextView pLabel = new TextView(this); pLabel.setText("● LIVE KAMERAPREVIEW  ·  frigives under optagelse");
         pLabel.setTextSize(12); pLabel.setTextColor(Color.rgb(145, 166, 190));
         pLabel.setPadding(0, dp(8), 0, dp(8)); root.addView(pLabel);
@@ -176,6 +169,10 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
         styleButton(play, Color.rgb(88, 115, 240), Color.WHITE); root.addView(play, spacedButtonParams());
         TextView slideLabel = sectionLabel("VIDEOINDSTILLINGER  /  Hastighed for alle timelapse-videoer"); root.addView(slideLabel);
         fps = new Spinner(this); fps.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"2 billeder/sek. (langsom)", "5 billeder/sek.", "10 billeder/sek.", "15 billeder/sek.", "24 billeder/sek. (hurtig)"})); fps.setSelection(2); styleSpinner(fps); root.addView(fps);
+        TextView qualityLabel = sectionLabel("BILLEDKVALITET  /  Opløsning af gemte fotos"); root.addView(qualityLabel);
+        resolution = new Spinner(this); resolution.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"Høj – kameraets maksimale opløsning", "Mellem – ca. 3 megapixel", "Lav – ca. 1 megapixel"})); resolution.setSelection(0); styleSpinner(resolution); root.addView(resolution);
+        powerSave = new CheckBox(this); powerSave.setText("Strømbesparelse – sluk preview mellem billeder"); powerSave.setTextColor(Color.WHITE); powerSave.setButtonTintList(android.content.res.ColorStateList.valueOf(Color.rgb(0, 190, 160))); powerSave.setPadding(0, dp(8), 0, dp(8)); powerSave.setChecked(false); root.addView(powerSave);
+        TextView powerHelp = new TextView(this); powerHelp.setText("Kan reducere kameraets strømforbrug. Billedet tages stadig med valgt opløsning; kameraet vækkes kort før hvert billede."); powerHelp.setTextSize(12); powerHelp.setTextColor(Color.rgb(177, 193, 212)); root.addView(powerHelp);
         slideshow = new Button(this); slideshow.setText("▧  Vælg billedmappe og lav timelapse");
         styleButton(slideshow, Color.rgb(51, 70, 99), Color.WHITE); root.addView(slideshow, spacedButtonParams());
         openFolder = new Button(this); openFolder.setText("▣  Åbn mappen med billeder");
@@ -197,6 +194,8 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
             long ms = n * (unit.getSelectedItemPosition()==1 ? 60000L : 1000L);
             Intent i = new Intent(this, CaptureService.class); i.setAction(CaptureService.ACTION_START); i.putExtra("interval_ms", ms);
             i.putExtra("frame_rate", selectedFrameRate());
+            i.putExtra("resolution_mode", resolution.getSelectedItemPosition());
+            i.putExtra("power_save", powerSave.isChecked());
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
             recording = true; updateRecordingButtons(true); play.setVisibility(View.GONE);
             status.setText("STARTER KAMERA …\nPreview slukkes, mens optagelsen bruger kameraet.");
@@ -212,6 +211,8 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
         if (interval != null) out.putString("interval", interval.getText().toString());
         if (unit != null) out.putInt("unit", unit.getSelectedItemPosition());
         if (fps != null) out.putInt("fps", fps.getSelectedItemPosition());
+        if (resolution != null) out.putInt("resolution", resolution.getSelectedItemPosition());
+        if (powerSave != null) out.putBoolean("powerSave", powerSave.isChecked());
         if (lastVideoPath != null) out.putString("lastVideoPath", lastVideoPath);
         out.putBoolean("recording", recording);
     }
@@ -221,6 +222,8 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
         if (interval != null) interval.setText(state.getString("interval", "15"));
         if (unit != null) unit.setSelection(state.getInt("unit", 0));
         if (fps != null) fps.setSelection(state.getInt("fps", 2));
+        if (resolution != null) resolution.setSelection(state.getInt("resolution", 0));
+        if (powerSave != null) powerSave.setChecked(state.getBoolean("powerSave", false));
         lastVideoPath = state.getString("lastVideoPath", lastVideoPath);
         recording = state.getBoolean("recording", recording);
         start.setEnabled(!recording);
