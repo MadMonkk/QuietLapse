@@ -26,3 +26,11 @@ Andre ændringer fra 0.5.1 bevares: standardinterval 15 sekunder, FPS-valg, synl
 - Ingen ændringer til kamera-previewets opbygning eller strømbesparelse i denne version.
 
 Bemærk: Kildekoden er ændret, men er ikke bygget eller testet på en fysisk telefon i dette miljø. Byg via GitHub Actions og test først med en lille billedmappe.
+
+
+## v0.6.3 – orientation and night pause
+- Before encoding, scans image dimensions and EXIF rotation for all images; landscape/portrait output follows the majority orientation. Images in the minority orientation are fitted with bars rather than cropped.
+- Optional night pause in capture mode. Default window is 20:00–07:00; times can be changed in the app. During this window no photos are taken, and normal capture resumes after the end time. The app still keeps its camera service/foreground notification running; this feature prevents night photos but does not yet fully power down the camera.
+- The slideshow/folder-to-video path uses the same orientation analysis.
+
+Build with the existing GitHub Actions workflow. This source ZIP has not been built or tested on a physical OnePlus 3T; test a short session and a small mixed-orientation folder before relying on it for a long garden timelapse. Keep the previous working APK and original photos.

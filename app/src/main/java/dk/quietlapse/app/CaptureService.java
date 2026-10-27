@@ -22,6 +22,8 @@ public class CaptureService extends Service {
     private Runnable captureTask;
     private long interval=15000;
     private int frameRate=15;
+    private boolean skipNight=false;
+    private int nightStartMin=1200, nightEndMin=420;
     private File sessionDir;
     private boolean running=false;
     private int savedCount=0;
@@ -46,6 +48,9 @@ public class CaptureService extends Service {
         if (intent != null && ACTION_START.equals(intent.getAction())) {
             interval = intent.getLongExtra("interval_ms",15000);
             frameRate = intent.getIntExtra("frame_rate",15);
+            skipNight = intent.getBooleanExtra("skip_night", false);
+            nightStartMin = intent.getIntExtra("night_start_min", 1200);
+            nightEndMin = intent.getIntExtra("night_end_min", 420);
             startForeground(7, notification("Starter kamera …"));
             reportStatus("Starter kamera …");
             if (!running) begin();
@@ -108,6 +113,11 @@ public class CaptureService extends Service {
             captureTask = new Runnable() {
                 @Override public void run() {
                     if (!running || camera==null) return;
+                    if (skipNight && isNightTime()) {
+                        reportStatus("OPTAGER – NATPAUSE\nIngen billeder tages nu.\nBilleder gemt: " + savedCount + "\nNæste kontrol om " + Math.max(1, interval/60000) + " min.");
+                        handler.postDelayed(this, interval);
+                        return;
+                    }
                     try { camera.takePicture(null,null, (data, cam) -> {
                         try (FileOutputStream out = new FileOutputStream(new File(sessionDir,String.format(Locale.US,"img_%06d.jpg",System.currentTimeMillis())))) { out.write(data); savedCount++; }
                         catch(Exception e) { reportStatus("FEJL: kunne ikke gemme billedet. Kontrollér lageradgang."); }
@@ -121,6 +131,13 @@ public class CaptureService extends Service {
             savedCount=0;
             reportStatus("OPTAGER\nBilleder gemmes i: Pictures/QuietLapse/" + sessionDir.getName() + "\nInterval: " + interval/1000 + " sek.");
         } catch(Exception e) { running=false; isCapturing=false; reportStatus("FEJL: Kameraet kunne ikke startes. Kontrollér kameratilladelse."); stopForeground(true); stopSelf(); }
+    }
+    private boolean isNightTime() {
+        Calendar c = Calendar.getInstance();
+        int now = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE);
+        if (nightStartMin == nightEndMin) return false; // equal times disables the night window
+        if (nightStartMin < nightEndMin) return now >= nightStartMin && now < nightEndMin;
+        return now >= nightStartMin || now < nightEndMin; // crosses midnight
     }
     private void updateNotification(String s) { if (Build.VERSION.SDK_INT>=26) ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(7,notification(s)); }
     private void stopCaptureAndEncode() {
@@ -151,14 +168,31 @@ public class CaptureService extends Service {
     private void encode(File[] pics, File outFile, int frameRate) throws Exception { encode(pics, outFile, frameRate, null); }
     private void encode(File[] pics, File outFile, int frameRate, ProgressListener listener) throws Exception {
         if (pics.length==0) throw new IOException("Ingen billeder");
-        android.graphics.Bitmap first=android.graphics.BitmapFactory.decodeFile(pics[0].getAbsolutePath());
-        if (first==null) throw new IOException("Første billede kunne ikke læses");
-        // Keep original photos at full resolution, but cap the MP4 frame size for Android 9 encoders.
-        int sourceW=first.getWidth(), sourceH=first.getHeight();
-        float scale=Math.min(1.0f, Math.min(1920.0f/sourceW, 1080.0f/sourceH));
+        // Analyze all image dimensions first. The majority orientation determines the MP4 shape.
+        int landscape=0, portrait=0, firstW=0, firstH=0;
+        for (File pic : pics) {
+            android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeFile(pic.getAbsolutePath(), bounds);
+            if (bounds.outWidth > 0 && bounds.outHeight > 0) {
+                int orientation = exifOrientation(pic);
+                boolean swap = orientation == 5 || orientation == 6 || orientation == 7 || orientation == 8;
+                int ow = swap ? bounds.outHeight : bounds.outWidth;
+                int oh = swap ? bounds.outWidth : bounds.outHeight;
+                if (firstW == 0) { firstW = ow; firstH = oh; }
+                if (ow >= oh) landscape++; else portrait++;
+            }
+        }
+        if (firstW <= 0 || firstH <= 0) throw new IOException("Ingen billeder kunne læses");
+        boolean landscapeVideo = landscape >= portrait;
+        int sourceW = landscapeVideo ? Math.max(firstW, firstH) : Math.min(firstW, firstH);
+        int sourceH = landscapeVideo ? Math.min(firstW, firstH) : Math.max(firstW, firstH);
+        // Cap landscape at 1920x1080 and portrait at 1080x1920 for Android 9 compatibility.
+        float maxW = landscapeVideo ? 1920.0f : 1080.0f;
+        float maxH = landscapeVideo ? 1080.0f : 1920.0f;
+        float scale = Math.min(1.0f, Math.min(maxW/sourceW, maxH/sourceH));
         int w=Math.max(2, ((int)(sourceW*scale)) & ~1);
         int h=Math.max(2, ((int)(sourceH*scale)) & ~1);
-        first.recycle();
         MediaFormat fmt=MediaFormat.createVideoFormat("video/avc",w,h);
         fmt.setInteger(MediaFormat.KEY_COLOR_FORMAT,MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
         fmt.setInteger(MediaFormat.KEY_BIT_RATE,2500000);
@@ -175,7 +209,7 @@ public class CaptureService extends Service {
             int processed=0;
             int lastReportedPercent=-1;
             for (File pic:pics) {
-                android.graphics.Bitmap bm=android.graphics.BitmapFactory.decodeFile(pic.getAbsolutePath());
+                android.graphics.Bitmap bm=decodeOrientedBitmap(pic);
                 if (bm==null) { processed++; if(listener!=null) { int pct=processed*100/pics.length; if(pct!=lastReportedPercent) { listener.onProgress(processed,pics.length); lastReportedPercent=pct; } } continue; }
                 android.graphics.Bitmap scaled=fitBitmap(bm,w,h);
                 int in=codec.dequeueInputBuffer(10000);
@@ -222,9 +256,37 @@ public class CaptureService extends Service {
             }
         }
     }
+    private int exifOrientation(File file) {
+        try { return new androidx.exifinterface.media.ExifInterface(file.getAbsolutePath()).getAttributeInt(
+                androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
+                androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL); }
+        catch (Exception ignored) { return 1; }
+    }
+    private android.graphics.Bitmap decodeOrientedBitmap(File file) {
+        android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeFile(file.getAbsolutePath());
+        if (bm == null) return null;
+        int orientation = exifOrientation(file);
+        android.graphics.Matrix matrix = new android.graphics.Matrix();
+        switch (orientation) {
+            case 2: matrix.setScale(-1, 1); break;
+            case 3: matrix.setRotate(180); break;
+            case 4: matrix.setScale(1, -1); break;
+            case 5: matrix.setRotate(90); matrix.postScale(-1, 1); break;
+            case 6: matrix.setRotate(90); break;
+            case 7: matrix.setRotate(-90); matrix.postScale(-1, 1); break;
+            case 8: matrix.setRotate(-90); break;
+            default: return bm;
+        }
+        try {
+            android.graphics.Bitmap rotated = android.graphics.Bitmap.createBitmap(bm, 0, 0, bm.getWidth(), bm.getHeight(), matrix, true);
+            if (rotated != bm) bm.recycle();
+            return rotated;
+        } catch (Exception ignored) { return bm; }
+    }
     private android.graphics.Bitmap fitBitmap(android.graphics.Bitmap source, int width, int height) {
         android.graphics.Bitmap target = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888);
         android.graphics.Canvas canvas = new android.graphics.Canvas(target); canvas.drawColor(android.graphics.Color.BLACK);
+        // Fit without cropping; images of the minority orientation get black side/top bars.
         float scale = Math.min((float)width/source.getWidth(), (float)height/source.getHeight());
         float dw = source.getWidth()*scale, dh = source.getHeight()*scale;
         android.graphics.RectF dst = new android.graphics.RectF((width-dw)/2f,(height-dh)/2f,(width+dw)/2f,(height+dh)/2f);

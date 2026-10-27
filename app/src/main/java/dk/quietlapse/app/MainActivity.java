@@ -41,6 +41,9 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
     TextView status;
     Button start, stop, play, slideshow, openFolder;
     Spinner fps;
+    CheckBox skipNight;
+    Button nightStartButton, nightEndButton;
+    int nightStartHour = 20, nightStartMinute = 0, nightEndHour = 7, nightEndMinute = 0;
     static final int PICK_IMAGE_FOLDER = 240;
     AspectTextureView preview;
     Camera previewCamera;
@@ -176,6 +179,16 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
         styleButton(play, Color.rgb(88, 115, 240), Color.WHITE); root.addView(play, spacedButtonParams());
         TextView slideLabel = sectionLabel("VIDEOINDSTILLINGER  /  Hastighed for alle timelapse-videoer"); root.addView(slideLabel);
         fps = new Spinner(this); fps.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"2 billeder/sek. (langsom)", "5 billeder/sek.", "10 billeder/sek.", "15 billeder/sek.", "24 billeder/sek. (hurtig)"})); fps.setSelection(2); styleSpinner(fps); root.addView(fps);
+        TextView nightLabel = sectionLabel("DAGOPTAGELSE  /  Spring natten over"); root.addView(nightLabel);
+        skipNight = new CheckBox(this); skipNight.setText("Tag ikke billeder om natten"); skipNight.setTextColor(Color.WHITE); skipNight.setButtonTintList(android.content.res.ColorStateList.valueOf(Color.rgb(0,190,160))); root.addView(skipNight);
+        LinearLayout nightTimes = new LinearLayout(this); nightTimes.setOrientation(LinearLayout.HORIZONTAL);
+        nightStartButton = new Button(this); nightStartButton.setText("Start nat: 20:00"); styleButton(nightStartButton, Color.rgb(35,48,67), Color.WHITE);
+        nightEndButton = new Button(this); nightEndButton.setText("Slut nat: 07:00"); styleButton(nightEndButton, Color.rgb(35,48,67), Color.WHITE);
+        LinearLayout.LayoutParams half = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f); half.rightMargin = dp(5);
+        nightTimes.addView(nightStartButton, half); LinearLayout.LayoutParams half2 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f); half2.leftMargin = dp(5); nightTimes.addView(nightEndButton, half2); root.addView(nightTimes);
+        nightStartButton.setOnClickListener(v -> new android.app.TimePickerDialog(this, (view,h,m) -> { nightStartHour=h; nightStartMinute=m; nightStartButton.setText(String.format(Locale.getDefault(), "Start nat: %02d:%02d",h,m)); }, nightStartHour, nightStartMinute, true).show());
+        nightEndButton.setOnClickListener(v -> new android.app.TimePickerDialog(this, (view,h,m) -> { nightEndHour=h; nightEndMinute=m; nightEndButton.setText(String.format(Locale.getDefault(), "Slut nat: %02d:%02d",h,m)); }, nightEndHour, nightEndMinute, true).show());
+        TextView nightHelp = new TextView(this); nightHelp.setText("Standard: ingen billeder fra kl. 20:00 til 07:00. Gælder også, hvis perioden går over midnat."); nightHelp.setTextColor(Color.rgb(177,193,212)); nightHelp.setTextSize(12); root.addView(nightHelp);
         slideshow = new Button(this); slideshow.setText("▧  Vælg billedmappe og lav timelapse");
         styleButton(slideshow, Color.rgb(51, 70, 99), Color.WHITE); root.addView(slideshow, spacedButtonParams());
         openFolder = new Button(this); openFolder.setText("▣  Åbn mappen med billeder");
@@ -197,6 +210,9 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
             long ms = n * (unit.getSelectedItemPosition()==1 ? 60000L : 1000L);
             Intent i = new Intent(this, CaptureService.class); i.setAction(CaptureService.ACTION_START); i.putExtra("interval_ms", ms);
             i.putExtra("frame_rate", selectedFrameRate());
+            i.putExtra("skip_night", skipNight.isChecked());
+            i.putExtra("night_start_min", nightStartHour * 60 + nightStartMinute);
+            i.putExtra("night_end_min", nightEndHour * 60 + nightEndMinute);
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
             recording = true; updateRecordingButtons(true); play.setVisibility(View.GONE);
             status.setText("STARTER KAMERA …\nPreview slukkes, mens optagelsen bruger kameraet.");
