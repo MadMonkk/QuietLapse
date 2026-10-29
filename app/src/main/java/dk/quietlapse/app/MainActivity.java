@@ -189,6 +189,13 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
         nightStartButton.setOnClickListener(v -> new android.app.TimePickerDialog(this, (view,h,m) -> { nightStartHour=h; nightStartMinute=m; nightStartButton.setText(String.format(Locale.getDefault(), "Start nat: %02d:%02d",h,m)); }, nightStartHour, nightStartMinute, true).show());
         nightEndButton.setOnClickListener(v -> new android.app.TimePickerDialog(this, (view,h,m) -> { nightEndHour=h; nightEndMinute=m; nightEndButton.setText(String.format(Locale.getDefault(), "Slut nat: %02d:%02d",h,m)); }, nightEndHour, nightEndMinute, true).show());
         autoSun = new CheckBox(this); autoSun.setText("Brug automatisk solopgang og solnedgang (GPS)"); autoSun.setTextColor(Color.WHITE); autoSun.setButtonTintList(android.content.res.ColorStateList.valueOf(Color.rgb(0,190,160))); root.addView(autoSun);
+        autoSun.setOnCheckedChangeListener((button, checked) -> {
+            if (checked && Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, 101);
+            } else if (checked) {
+                status.setText("GPS valgt. Slå placering til på telefonen; tryk Start, når du er klar.");
+            }
+        });
         TextView nightHelp = new TextView(this); nightHelp.setText("Når GPS er slået til, beregnes dagens solopgang og solnedgang ud fra din placering. Ellers bruges tiderne ovenfor. Kræver placeringstilladelse og en tilgængelig seneste position."); nightHelp.setTextColor(Color.rgb(177,193,212)); nightHelp.setTextSize(12); root.addView(nightHelp);
         slideshow = new Button(this); slideshow.setText("▧  Vælg billedmappe og lav timelapse");
         styleButton(slideshow, Color.rgb(51, 70, 99), Color.WHITE); root.addView(slideshow, spacedButtonParams());
@@ -312,19 +319,34 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
     private ArrayList<Uri> listImages(Uri tree) throws IOException {
         ArrayList<Uri> out = new ArrayList<>();
         String treeId = DocumentsContract.getTreeDocumentId(tree);
-        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, treeId);
+        collectImages(tree, treeId, out, new java.util.HashSet<String>());
+        Collections.sort(out, Comparator.comparing(u -> {
+            String id = DocumentsContract.getDocumentId(u); int slash = id.lastIndexOf('/');
+            return (slash >= 0 ? id.substring(slash+1) : id).toLowerCase(Locale.US);
+        }));
+        return out;
+    }
+
+    private void collectImages(Uri tree, String parentId, ArrayList<Uri> out, java.util.Set<String> visited) throws IOException {
+        if (!visited.add(parentId)) return;
+        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId);
         String[] cols = {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE};
         try (Cursor c = getContentResolver().query(children, cols, null, null, null)) {
-            if (c == null) throw new IOException("Android kunne ikke læse mappen.");
+            if (c == null) throw new IOException("Android kunne ikke læse mappen eller dens undermapper.");
             while (c.moveToNext()) {
                 String id = c.getString(0), name = c.getString(1), mime = c.getString(2);
-                if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) continue;
+                if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
+                    collectImages(tree, id, out, visited);
+                    continue;
+                }
                 String lower = name == null ? "" : name.toLowerCase(Locale.US);
-                if ((mime != null && mime.startsWith("image/")) || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") || lower.endsWith(".webp")) out.add(DocumentsContract.buildDocumentUriUsingTree(tree, id));
+                if ((mime != null && mime.startsWith("image/")) || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") || lower.endsWith(".webp")) {
+                    out.add(DocumentsContract.buildDocumentUriUsingTree(tree, id));
+                }
             }
+        } catch (SecurityException e) {
+            throw new IOException("Adgang til mappen blev afvist. Vælg mappen igen, og giv adgang.", e);
         }
-        Collections.sort(out, Comparator.comparing(u -> { String id = DocumentsContract.getDocumentId(u); int slash = id.lastIndexOf('/'); return (slash >= 0 ? id.substring(slash+1) : id).toLowerCase(Locale.US); }));
-        return out;
     }
     private void deleteTree(File f) { if (f.isDirectory()) { File[] children = f.listFiles(); if (children != null) for (File child : children) deleteTree(child); } f.delete(); }
 
@@ -413,6 +435,10 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
         if (requestCode==100) {
             status.setText("Tilladelser behandlet. Tryk Start igen.");
             if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) preview.post(this::startPreview);
+        } else if (requestCode==101) {
+            boolean granted = Build.VERSION.SDK_INT < 23 || checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+            if (granted) status.setText("Placeringstilladelse givet. Slå også Placering til på telefonen, og tryk Start.");
+            else { autoSun.setChecked(false); status.setText("Placeringstilladelse blev ikke givet. Automatisk solopgang/solnedgang er slået fra."); }
         }
     }
     private static class AspectTextureView extends TextureView {

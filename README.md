@@ -65,3 +65,9 @@ Build with the existing GitHub Actions workflow. This source ZIP has not been bu
 - Den eksisterende H.264-encoder, 1080p-grænse, billedtilpasning og fremdriftsprocent er bevaret.
 
 Denne optimeringskilde er ikke bygget eller testet på en fysisk Android 9-enhed. Test først med 100–300 kopier af billeder, og sammenlign tid, billedretning og billedkvalitet med den tidligere version.
+
+## Version 0.6.8 — permission and folder-picker fixes
+- Request location permission as soon as automatic sunrise/sunset is enabled, instead of waiting until Start.
+- Search selected image folders recursively, including subfolders.
+- Show clearer errors when Android denies access to a selected folder.
+- The ZIP is source-only and has not been built or tested on a phone in this environment.
