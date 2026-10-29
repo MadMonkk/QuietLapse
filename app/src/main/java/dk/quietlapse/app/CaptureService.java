@@ -24,6 +24,8 @@ public class CaptureService extends Service {
     private int frameRate=15;
     private boolean skipNight=false;
     private int nightStartMin=1200, nightEndMin=420;
+    private boolean autoSun=false;
+    private double sunLatitude=0, sunLongitude=0;
     private File sessionDir;
     private boolean running=false;
     private int savedCount=0;
@@ -51,6 +53,9 @@ public class CaptureService extends Service {
             skipNight = intent.getBooleanExtra("skip_night", false);
             nightStartMin = intent.getIntExtra("night_start_min", 1200);
             nightEndMin = intent.getIntExtra("night_end_min", 420);
+            autoSun = intent.getBooleanExtra("auto_sun", false);
+            sunLatitude = intent.getDoubleExtra("sun_lat", 0.0);
+            sunLongitude = intent.getDoubleExtra("sun_lon", 0.0);
             startForeground(7, notification("Starter kamera …"));
             reportStatus("Starter kamera …");
             if (!running) begin();
@@ -182,9 +187,31 @@ public class CaptureService extends Service {
     private boolean isNightTime() {
         Calendar c = Calendar.getInstance();
         int now = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE);
-        if (nightStartMin == nightEndMin) return false; // equal times disables the night window
+        if (autoSun) {
+            double offsetHours = c.getTimeZone().getOffset(c.getTimeInMillis()) / 3600000.0;
+            SolarTimes times = SolarTimes.forDate(c.get(Calendar.DAY_OF_YEAR), sunLatitude, sunLongitude, offsetHours);
+            if (times != null) return now < times.sunriseMinute || now >= times.sunsetMinute;
+        }
+        if (nightStartMin == nightEndMin) return false;
         if (nightStartMin < nightEndMin) return now >= nightStartMin && now < nightEndMin;
-        return now >= nightStartMin || now < nightEndMin; // crosses midnight
+        return now >= nightStartMin || now < nightEndMin;
+    }
+
+    // NOAA approximation; accurate enough for a timelapse night pause and needs no internet.
+    private static class SolarTimes {
+        final int sunriseMinute, sunsetMinute;
+        SolarTimes(int rise, int set) { sunriseMinute=rise; sunsetMinute=set; }
+        static SolarTimes forDate(int day, double lat, double lon, double tzHours) {
+            double gamma = 2.0 * Math.PI / 365.0 * (day - 1);
+            double eq = 229.18 * (0.000075 + 0.001868*Math.cos(gamma) - 0.032077*Math.sin(gamma) - 0.014615*Math.cos(2*gamma) - 0.040849*Math.sin(2*gamma));
+            double decl = 0.006918 - 0.399912*Math.cos(gamma) + 0.070257*Math.sin(gamma) - 0.006758*Math.cos(2*gamma) + 0.000907*Math.sin(2*gamma) - 0.002697*Math.cos(3*gamma) + 0.00148*Math.sin(3*gamma);
+            double cosH = Math.cos(Math.toRadians(90.833))/(Math.cos(Math.toRadians(lat))*Math.cos(decl)) - Math.tan(Math.toRadians(lat))*Math.tan(decl);
+            if (cosH < -1 || cosH > 1) return null;
+            double ha = Math.toDegrees(Math.acos(cosH));
+            int rise = (int)Math.round(720 - 4*(lon + ha) - eq + tzHours*60);
+            int set = (int)Math.round(720 - 4*(lon - ha) - eq + tzHours*60);
+            return new SolarTimes((rise%1440+1440)%1440, (set%1440+1440)%1440);
+        }
     }
     private void updateNotification(String s) { if (Build.VERSION.SDK_INT>=26) ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(7,notification(s)); }
     private void stopCaptureAndEncode() {
@@ -214,9 +241,12 @@ public class CaptureService extends Service {
     private void encode(File[] pics, File outFile, int frameRate) throws Exception { encode(pics, outFile, frameRate, null); }
     private void encode(File[] pics, File outFile, int frameRate, ProgressListener listener) throws Exception {
         if (pics.length==0) throw new IOException("Ingen billeder");
-        // Analyze all image dimensions first. The majority orientation determines the MP4 shape.
+        // Sample at most 200 images to choose the video orientation. This avoids a full
+        // metadata scan of thousands of images before encoding starts.
         int landscape=0, portrait=0, firstW=0, firstH=0;
-        for (File pic : pics) {
+        int samples = Math.min(pics.length, 200);
+        for (int si = 0; si < samples; si++) {
+            File pic = pics[(int)((long)si * pics.length / samples)];
             android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
             bounds.inJustDecodeBounds = true;
             android.graphics.BitmapFactory.decodeFile(pic.getAbsolutePath(), bounds);
@@ -255,7 +285,7 @@ public class CaptureService extends Service {
             int processed=0;
             int lastReportedPercent=-1;
             for (File pic:pics) {
-                android.graphics.Bitmap bm=decodeOrientedBitmap(pic);
+                android.graphics.Bitmap bm=decodeOrientedBitmap(pic,w,h);
                 if (bm==null) { processed++; if(listener!=null) { int pct=processed*100/pics.length; if(pct!=lastReportedPercent) { listener.onProgress(processed,pics.length); lastReportedPercent=pct; } } continue; }
                 android.graphics.Bitmap scaled=fitBitmap(bm,w,h);
                 int in=codec.dequeueInputBuffer(10000);
@@ -308,10 +338,24 @@ public class CaptureService extends Service {
                 androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL); }
         catch (Exception ignored) { return 1; }
     }
-    private android.graphics.Bitmap decodeOrientedBitmap(File file) {
-        android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeFile(file.getAbsolutePath());
-        if (bm == null) return null;
+    private android.graphics.Bitmap decodeOrientedBitmap(File file, int targetWidth, int targetHeight) {
+        // Decode near the final video resolution instead of allocating a full-resolution
+        // camera bitmap (often 12 MP) for every frame. This greatly reduces memory traffic.
+        android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        android.graphics.BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
         int orientation = exifOrientation(file);
+        boolean swap = orientation == 5 || orientation == 6 || orientation == 7 || orientation == 8;
+        int orientedWidth = swap ? bounds.outHeight : bounds.outWidth;
+        int orientedHeight = swap ? bounds.outWidth : bounds.outHeight;
+        int sample = 1;
+        while (sample <= 8 && orientedWidth / (sample * 2) >= targetWidth && orientedHeight / (sample * 2) >= targetHeight) sample *= 2;
+        android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+        options.inSampleSize = sample;
+        options.inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888;
+        android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeFile(file.getAbsolutePath(), options);
+        if (bm == null) return null;
         android.graphics.Matrix matrix = new android.graphics.Matrix();
         switch (orientation) {
             case 2: matrix.setScale(-1, 1); break;

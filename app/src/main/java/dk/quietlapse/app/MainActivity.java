@@ -41,7 +41,7 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
     TextView status;
     Button start, stop, play, slideshow, openFolder;
     Spinner fps;
-    CheckBox skipNight;
+    CheckBox skipNight, autoSun;
     Button nightStartButton, nightEndButton;
     int nightStartHour = 20, nightStartMinute = 0, nightEndHour = 7, nightEndMinute = 0;
     static final int PICK_IMAGE_FOLDER = 240;
@@ -188,7 +188,8 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
         nightTimes.addView(nightStartButton, half); LinearLayout.LayoutParams half2 = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f); half2.leftMargin = dp(5); nightTimes.addView(nightEndButton, half2); root.addView(nightTimes);
         nightStartButton.setOnClickListener(v -> new android.app.TimePickerDialog(this, (view,h,m) -> { nightStartHour=h; nightStartMinute=m; nightStartButton.setText(String.format(Locale.getDefault(), "Start nat: %02d:%02d",h,m)); }, nightStartHour, nightStartMinute, true).show());
         nightEndButton.setOnClickListener(v -> new android.app.TimePickerDialog(this, (view,h,m) -> { nightEndHour=h; nightEndMinute=m; nightEndButton.setText(String.format(Locale.getDefault(), "Slut nat: %02d:%02d",h,m)); }, nightEndHour, nightEndMinute, true).show());
-        TextView nightHelp = new TextView(this); nightHelp.setText("Standard: ingen billeder fra kl. 20:00 til 07:00. Gælder også, hvis perioden går over midnat."); nightHelp.setTextColor(Color.rgb(177,193,212)); nightHelp.setTextSize(12); root.addView(nightHelp);
+        autoSun = new CheckBox(this); autoSun.setText("Brug automatisk solopgang og solnedgang (GPS)"); autoSun.setTextColor(Color.WHITE); autoSun.setButtonTintList(android.content.res.ColorStateList.valueOf(Color.rgb(0,190,160))); root.addView(autoSun);
+        TextView nightHelp = new TextView(this); nightHelp.setText("Når GPS er slået til, beregnes dagens solopgang og solnedgang ud fra din placering. Ellers bruges tiderne ovenfor. Kræver placeringstilladelse og en tilgængelig seneste position."); nightHelp.setTextColor(Color.rgb(177,193,212)); nightHelp.setTextSize(12); root.addView(nightHelp);
         slideshow = new Button(this); slideshow.setText("▧  Vælg billedmappe og lav timelapse");
         styleButton(slideshow, Color.rgb(51, 70, 99), Color.WHITE); root.addView(slideshow, spacedButtonParams());
         openFolder = new Button(this); openFolder.setText("▣  Åbn mappen med billeder");
@@ -201,8 +202,12 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
         setContentView(scroll);
 
         start.setOnClickListener(v -> {
-            if (Build.VERSION.SDK_INT >= 23 && (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED || checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED)) {
-                requestPermissions(new String[]{Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE}, 100); status.setText("Tillad kamera og lager, og tryk derefter Start igen."); return;
+            if (Build.VERSION.SDK_INT >= 23) {
+                java.util.ArrayList<String> needed = new java.util.ArrayList<>();
+                if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) needed.add(Manifest.permission.CAMERA);
+                if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) needed.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+                if (autoSun.isChecked() && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) needed.add(Manifest.permission.ACCESS_FINE_LOCATION);
+                if (!needed.isEmpty()) { requestPermissions(needed.toArray(new String[0]), 100); status.setText("Giv de ønskede tilladelser, og tryk derefter Start igen."); return; }
             }
             int n; try { n = Integer.parseInt(interval.getText().toString().trim()); } catch (Exception e) { status.setText("FEJL: Skriv et gyldigt interval."); return; }
             if (n < 10) { status.setText("FEJL: Brug mindst 10 sekunder mellem billeder."); return; }
@@ -213,6 +218,12 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
             i.putExtra("skip_night", skipNight.isChecked());
             i.putExtra("night_start_min", nightStartHour * 60 + nightStartMinute);
             i.putExtra("night_end_min", nightEndHour * 60 + nightEndMinute);
+            i.putExtra("auto_sun", autoSun.isChecked());
+            if (autoSun.isChecked()) {
+                android.location.Location loc = getBestLastLocation();
+                if (loc == null) { status.setText("FEJL: Ingen GPS-position tilgængelig. Slå placering til, åbn Maps et øjeblik, og prøv igen – eller slå automatisk sol op/ned fra."); return; }
+                i.putExtra("sun_lat", loc.getLatitude()); i.putExtra("sun_lon", loc.getLongitude());
+            }
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
             recording = true; updateRecordingButtons(true); play.setVisibility(View.GONE);
             status.setText("STARTER KAMERA …\nPreview slukkes, mens optagelsen bruger kameraet.");
@@ -382,6 +393,20 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(statusReceiver, f, Context.RECEIVER_NOT_EXPORTED); else registerReceiver(statusReceiver, f);
         if (!recording && preview != null) preview.post(this::startPreview);
     }
+
+    private android.location.Location getBestLastLocation() {
+        try {
+            android.location.LocationManager lm = (android.location.LocationManager)getSystemService(LOCATION_SERVICE);
+            android.location.Location best = null;
+            for (String provider : lm.getProviders(true)) {
+                android.location.Location candidate = lm.getLastKnownLocation(provider);
+                if (candidate != null && (best == null || candidate.getTime() > best.getTime())) best = candidate;
+            }
+            return best;
+        } catch (SecurityException e) { return null; }
+        catch (Exception e) { return null; }
+    }
+
     @Override protected void onPause() { try { unregisterReceiver(statusReceiver); } catch (Exception ignored) {} releasePreview(); super.onPause(); }
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);

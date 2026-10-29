@@ -49,3 +49,19 @@ Build with the existing GitHub Actions workflow. This source ZIP has not been bu
 - Bevarer billed-/videomappen DCIM/QuietLapse og eksisterende videofremdrift.
 - Dette er en testversion: hyppig genåbning af kameraet kan give forsinkelse eller fejl på visse telefoner. Test først med en kort optagelse.
 - APK-artifact: QuietLapse_Version_0.6.5.apk
+
+
+## v0.6.6 – solpause og orientering
+- Valgfri automatisk natpause beregnet ud fra seneste kendte placering og solopgang/solnedgang (beregnes lokalt uden internet).
+- Hvis automatisk solpause er slået fra, bruges de manuelt valgte nat-tider som før.
+- Videoens format vælges ud fra flertallet af billedernes faktiske EXIF-orientering; billeder drejes efter EXIF, så skift mellem lodret/vandret håndteres bedst muligt.
+- Bygget til Android 9 / API 28. Denne kildepakke er ikke bygget eller testet på en fysisk telefon herfra.
+
+
+## QuietLapse Classic v0.6.7 – hurtigere videoproduktion (forslag)
+
+- Orienteringen vælges ud fra højst 200 jævnt fordelte billeder i stedet for at scanne alle billeder før encoding. Ved blandede billedretninger er valget derfor et repræsentativt estimat, ikke en fuld optælling.
+- Billeder dekodes med `inSampleSize`, når kildens opløsning er væsentligt større end den endelige videoramme, for at reducere hukommelsesforbrug og pixelbehandling.
+- Den eksisterende H.264-encoder, 1080p-grænse, billedtilpasning og fremdriftsprocent er bevaret.
+
+Denne optimeringskilde er ikke bygget eller testet på en fysisk Android 9-enhed. Test først med 100–300 kopier af billeder, og sammenlign tid, billedretning og billedkvalitet med den tidligere version.
